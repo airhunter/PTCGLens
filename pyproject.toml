@@ -1,0 +1,16 @@
+[project]
+name = "ptcglens"
+version = "0.1.0"
+description = "Pokémon TCG Live 本地卡牌识别与中文阅读界面"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "GPL-3.0-only"
+dependencies = [
+    "UnityPy>=1.25,<2",
+    "opencv-python-headless>=4.10,<6",
+    "numpy>=2,<3",
+    "Pillow>=11,<13",
+]
+
+[tool.uv]
+package = false

@@ -17,7 +17,7 @@ PTCGLens 是一个实验性的 Pokémon TCG Live 卡牌识别工具。它从**�
 ## 运行环境
 
 - Windows；实时截取游戏窗口依赖 Win32 API。
-- Python 3.12 已验证；需要安装 [requirements.txt](requirements.txt) 中的依赖。
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)；项目依赖由 [pyproject.toml](pyproject.toml) 和 `uv.lock` 管理，Python 3.12、3.13 已验证。
 - 本机安装过 Pokémon TCG Live，且游戏缓存里已有卡图和英文卡牌数据库。
 - Git，用于获取单独维护的中文对照表。
 - 浏览器，用于打开本机展示界面。
@@ -28,12 +28,13 @@ PTCGLens 是一个实验性的 Pokémon TCG Live 卡牌识别工具。它从**�
 
 以下命令在项目根目录的 PowerShell 中执行。
 
-### 1. 安装 Python 依赖
+### 1. 准备 Python 环境
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+uv sync
 ```
+
+`uv` 会按锁文件建立 `.venv` 并安装依赖。后续 `uv run` 会自动检查环境，无需激活虚拟环境。
 
 ### 2. 准备中文对照表
 
@@ -49,24 +50,20 @@ git -C .tmp/ptcg-live-zh-mod sparse-checkout set databases_zh-CN
 ### 3. 从游戏缓存建立数据
 
 ```powershell
-.\.venv\Scripts\python.exe cache_watch.py --once
+uv run python cache_watch.py --once
 ```
 
 这一步建立 `output/index/` 特征索引、`output/card-thumbnails/` 缩略图和 `output/card-data.json` 卡牌资料。默认读取当前用户的游戏缓存；缓存位置与默认值不同时，可用 `--cache-root`、`--game-cache` 和 `--translation-root` 指定。命令状态保存在 `output/cache-watch-status.json`。
 
 ### 4. 启动实时界面
 
-在**两个**项目根目录的 PowerShell 窗口中分别运行：
+在项目根目录的一个 PowerShell 窗口中运行：
 
 ```powershell
-.\.venv\Scripts\python.exe battle_live.py
+uv run ptcglens.py
 ```
 
-```powershell
-.\.venv\Scripts\python.exe viewer.py
-```
-
-打开 [http://127.0.0.1:8765](http://127.0.0.1:8765)。游戏在前台时程序才会更新截图；游戏未启动时识别进程会等待，重新打开游戏并切到前台后继续。网页服务默认只监听 `127.0.0.1`。在各自窗口按 `Ctrl+C` 可停止程序。
+打开 [http://127.0.0.1:8765](http://127.0.0.1:8765)。这个入口会同时启动实时识别和网页服务，并在按 `Ctrl+C` 时一起关闭。游戏在前台时程序才会更新截图；游戏未启动时识别进程会等待，重新打开游戏并切到前台后继续。网页服务默认只监听 `127.0.0.1`。可用 `--port` 修改端口；缓存位置与默认值不同时，可传入 `--cache-root`、`--game-cache` 和 `--translation-root`。
 
 ## 怎么使用
 
@@ -80,13 +77,13 @@ git -C .tmp/ptcg-live-zh-mod sparse-checkout set databases_zh-CN
 
 | 用途 | 命令 |
 | --- | --- |
-| 游戏运行时持续检查新增卡图 | `python cache_watch.py` |
-| 从已有截图检测多个对局卡位 | `python battle_multi.py search --screenshot <截图路径> --adaptive-hand --adaptive-preview` |
-| 搜索一张截图中的放大卡牌 | `python cache_search.py search --screenshot <截图路径>` |
-| 使用热键抓取前台卡牌特写 | `python live_capture.py watch` |
-| 列出可见窗口以排查游戏窗口标题 | `python live_capture.py windows` |
+| 游戏运行时持续检查新增卡图 | `uv run python cache_watch.py` |
+| 从已有截图检测多个对局卡位 | `uv run python battle_multi.py search --screenshot <截图路径> --adaptive-hand --adaptive-preview` |
+| 搜索一张截图中的放大卡牌 | `uv run python cache_search.py search --screenshot <截图路径>` |
+| 使用热键抓取前台卡牌特写 | `uv run python live_capture.py watch` |
+| 列出可见窗口以排查游戏窗口标题 | `uv run python live_capture.py windows` |
 
-以上命令在虚拟环境未激活时，将 `python` 换成 `.\.venv\Scripts\python.exe`。热键模式中，鼠标位于前台游戏客户区时按 `Ctrl+Alt+L` 抓图，按 `Ctrl+Alt+Shift+Q` 退出。单帧识别使用 [battle_layout.sample.json](battle_layout.sample.json) 中的实验性卡位布局；结果写入 `output/`。
+热键模式中，鼠标位于前台游戏客户区时按 `Ctrl+Alt+L` 抓图，按 `Ctrl+Alt+Shift+Q` 退出。单帧识别使用 [battle_layout.sample.json](battle_layout.sample.json) 中的实验性卡位布局；结果写入 `output/`。
 
 ## 已知限制
 
