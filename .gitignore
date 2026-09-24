@@ -1,0 +1,11 @@
+.deps/
+.venv/
+.tmp/
+output/
+.playwright-cli/
+__pycache__/
+*.pyc
+*.log
+.env
+.env.*
+!.env.example

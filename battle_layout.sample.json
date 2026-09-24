@@ -1,0 +1,27 @@
+{
+  "reference_size": [1910, 1075],
+  "description": "根据 1910x1075 对局截图标定的固定布局样例；相同比例的窗口会按尺寸缩放。",
+  "slots": [
+    {"key": "preview", "label": "放大预览", "box": [141, 226, 466, 690], "may_be_empty": true, "empty_std_max": 35, "empty_edge_max": 0.13},
+    {"key": "opponent_bench_1", "label": "对手后排 1", "box": [647, 53, 760, 210], "may_be_empty": true},
+    {"key": "opponent_bench_2", "label": "对手后排 2", "box": [769, 53, 887, 210], "may_be_empty": true},
+    {"key": "opponent_bench_3", "label": "对手后排 3", "box": [899, 53, 1010, 210], "may_be_empty": true},
+    {"key": "opponent_bench_4", "label": "对手后排 4", "box": [1023, 53, 1145, 210], "may_be_empty": true},
+    {"key": "opponent_bench_5", "label": "对手后排 5", "box": [1149, 53, 1266, 210], "may_be_empty": true},
+    {"key": "opponent_active", "label": "对手出战", "box": [861, 217, 1045, 462]},
+    {"key": "opponent_discard_top", "label": "对手弃牌堆顶", "box": [1421, 224, 1539, 382], "may_be_empty": true},
+    {"key": "stadium", "label": "场地", "box": [678, 402, 791, 561], "visible_rows": [0.0, 0.58], "may_be_empty": true, "empty_std_max": 25, "empty_edge_max": 1.0},
+    {"key": "own_active", "label": "我方出战", "box": [864, 486, 1047, 742], "visible_rows": [0.39, 1.0]},
+    {"key": "own_discard_top", "label": "我方弃牌堆顶", "box": [1421, 581, 1539, 741], "may_be_empty": true},
+    {"key": "own_bench_1", "label": "我方后排 1", "box": [646, 751, 759, 907], "may_be_empty": true},
+    {"key": "own_bench_2", "label": "我方后排 2", "box": [771, 751, 887, 907], "may_be_empty": true},
+    {"key": "own_bench_3", "label": "我方后排 3", "box": [900, 751, 1012, 907], "may_be_empty": true},
+    {"key": "own_bench_4", "label": "我方后排 4", "box": [1027, 751, 1141, 907], "may_be_empty": true},
+    {"key": "own_bench_5", "label": "我方后排 5", "box": [1150, 751, 1264, 907], "may_be_empty": true},
+    {"key": "hand_1", "label": "手牌 1", "box": [488, 943, 668, 1075]},
+    {"key": "hand_2", "label": "手牌 2", "box": [677, 943, 856, 1075]},
+    {"key": "hand_3", "label": "手牌 3", "box": [865, 943, 1045, 1075]},
+    {"key": "hand_4", "label": "手牌 4", "box": [1054, 943, 1234, 1075]},
+    {"key": "hand_5", "label": "手牌 5", "box": [1242, 943, 1422, 1075]}
+  ]
+}

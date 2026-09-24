@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>PTCGLens · 实时卡牌识别</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo">◈</span><div><strong>PTCGLens</strong><small>实时卡牌识别</small></div></div>
+    <div class="top-status"><span id="pulse" class="pulse"></span><span id="connection">等待画面</span><span id="updated"></span></div>
+  </header>
+  <main>
+    <section class="stage">
+      <div class="stage-heading"><div><h1>当前画面</h1><p>点击识别框查看对应卡牌资料</p></div><span id="stats" class="stats">等待识别</span></div>
+      <div id="screen" class="screen"><img id="screenshot" alt="PTCG Live 对局截图"><div id="boxes" class="boxes"></div><div id="screen-message" class="screen-message">等待游戏画面…</div></div>
+      <p class="hint">画面仅来自前台 PTCG Live 窗口。黄色表示待确认，蓝色表示被预览卡遮挡。</p>
+    </section>
+    <aside class="sidebar">
+      <div class="sidebar-heading"><h2>卡牌资料</h2><p>按当前画面自动更新</p></div>
+      <div id="selection" class="selection">选择一张卡牌查看详细资料</div>
+      <div id="card-list" class="card-list"></div>
+    </aside>
+  </main>
+  <dialog id="card-dialog" class="card-dialog" aria-labelledby="large-title">
+    <div class="dialog-head">
+      <div><span class="eyebrow">卡牌大图 · 简体中文资料</span><h2 id="large-title">卡牌</h2></div>
+      <button id="close-card" class="close-card" type="button" aria-label="关闭大图">×</button>
+    </div>
+    <div class="dialog-body">
+      <figure class="large-figure">
+        <div class="view-switch"><button id="view-zh" type="button" class="active">中文阅读版</button><button id="view-original" type="button">游戏原卡</button></div>
+        <div id="localized-card" class="localized-card"></div>
+        <img id="large-card-image" class="is-hidden" alt="卡牌原图">
+        <figcaption id="large-caption">依据本地卡图与翻译资料生成的阅读版</figcaption>
+      </figure>
+      <div id="large-card-info" class="large-card-info"></div>
+    </div>
+  </dialog>
+</body>
+</html>
