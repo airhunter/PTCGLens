@@ -37,13 +37,16 @@ def signature(screenshot: np.ndarray, slot: dict, reference_size: list[int]) -> 
 
 
 def is_battle_screen(screenshot: np.ndarray) -> bool:
-    """依据当前对局桌面的绿色区域，排除牌组和主菜单画面。"""
+    """用双方卡位边框识别牌桌，兼容不同颜色的桌面主题。"""
     height, width = screenshot.shape[:2]
-    center = screenshot[round(height * .2):round(height * .8),
-                        round(width * .2):round(width * .8)]
-    hsv = cv2.cvtColor(center, cv2.COLOR_BGR2HSV)
-    green = (hsv[:, :, 0] > 35) & (hsv[:, :, 0] < 105) & (hsv[:, :, 1] > 75)
-    return float(green.mean()) >= .25
+    hsv = cv2.cvtColor(screenshot, cv2.COLOR_BGR2HSV)
+    upper = hsv[round(height * .045):round(height * .065), round(width * .34):round(width * .66)]
+    lower = hsv[round(height * .685):round(height * .705), round(width * .34):round(width * .66)]
+    center = hsv[round(height * .3):round(height * .7), round(width * .3):round(width * .7)]
+    upper_red = ((upper[:, :, 0] < 15) | (upper[:, :, 0] > 170)) & (upper[:, :, 1] > 75) & (upper[:, :, 2] > 50)
+    lower_blue = (lower[:, :, 0] > 85) & (lower[:, :, 0] < 115) & (lower[:, :, 1] > 65) & (lower[:, :, 2] > 50)
+    modal_white = (center[:, :, 1] < 40) & (center[:, :, 2] > 160)
+    return float(upper_red.mean()) >= .05 and float(lower_blue.mean()) >= .08 and float(modal_white.mean()) < .35
 
 
 def scan_frame(
@@ -73,15 +76,28 @@ def scan_frame(
     return results, current, reused
 
 
+def replace_when_available(source: Path, destination: Path, timeout: float = 2) -> None:
+    """等待 Windows 上正在读取目标文件的浏览器请求释放文件句柄。"""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            source.replace(destination)
+            return
+        except PermissionError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(.025)
+
+
 def save_frame(output_dir: Path, screenshot: np.ndarray, results: list[dict], metadata: dict) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     screenshot_temp = output_dir / "screenshot.tmp.png"
     screenshot_path = output_dir / "screenshot.png"
     cv2.imwrite(str(screenshot_temp), screenshot)
-    screenshot_temp.replace(screenshot_path)
+    replace_when_available(screenshot_temp, screenshot_path)
     annotated_temp = output_dir / "annotated.tmp.png"
     annotate(screenshot, results, annotated_temp)
-    annotated_temp.replace(output_dir / "annotated.png")
+    replace_when_available(annotated_temp, output_dir / "annotated.png")
     document = {
         **metadata,
         "slots": results,
@@ -92,7 +108,7 @@ def save_frame(output_dir: Path, screenshot: np.ndarray, results: list[dict], me
     }
     temporary = output_dir / "latest.json.tmp"
     temporary.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(output_dir / "latest.json")
+    replace_when_available(temporary, output_dir / "latest.json")
 
 
 def main() -> None:
