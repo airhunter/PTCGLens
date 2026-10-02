@@ -11,7 +11,7 @@
     {"key": "opponent_active", "label": "对手出战", "box": [861, 217, 1045, 462]},
     {"key": "opponent_discard_top", "label": "对手弃牌堆顶", "box": [1421, 224, 1539, 382], "may_be_empty": true},
     {"key": "stadium", "label": "场地", "box": [678, 402, 791, 561], "visible_rows": [0.0, 0.58], "may_be_empty": true, "empty_std_max": 25, "empty_edge_max": 1.0},
-    {"key": "own_active", "label": "我方出战", "box": [864, 486, 1047, 742], "visible_rows": [0.39, 1.0]},
+    {"key": "own_active", "label": "我方出战", "box": [864, 486, 1047, 742], "visible_rows": [0.1, 0.7]},
     {"key": "own_discard_top", "label": "我方弃牌堆顶", "box": [1421, 581, 1539, 741], "may_be_empty": true},
     {"key": "own_bench_1", "label": "我方后排 1", "box": [646, 751, 759, 907], "may_be_empty": true},
     {"key": "own_bench_2", "label": "我方后排 2", "box": [771, 751, 887, 907], "may_be_empty": true},

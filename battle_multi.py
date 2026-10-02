@@ -224,6 +224,9 @@ def recognise_slot(
     if winner["score"] < .35 or (winner["score"] < .4 and margin < .04 and sift_inliers < 15) \
             or (winner["score"] < .52 and margin < .03 and sift_inliers < 15):
         return result
+    if winner["score"] < .4 or margin < .07:
+        result["status"] = "tentative"
+        return result
     card = cards.get(winner["card_id"], {})
     result["card_id"] = winner["card_id"]
     result["name_en"] = winner["name_en"]
@@ -232,7 +235,7 @@ def recognise_slot(
         item["card_id"] for item in ranked
         if item["name_en"] == winner["name_en"] and winner["score"] - item["score"] <= .015
     ][:5]
-    result["status"] = "matched" if winner["score"] >= .4 and margin >= .07 else "tentative"
+    result["status"] = "matched"
     return result
 
 

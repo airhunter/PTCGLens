@@ -284,8 +284,13 @@ function selectSlot(key) {
   } else {
     const note = document.createElement("div");
     note.className = "detail secondary";
-    note.textContent = slot.status === "occluded" ? "卡图被放大预览挡住，当前帧无法可靠确认。" : "当前帧没有可靠的卡牌身份。";
+    note.textContent = slot.status === "occluded" ? "卡图被放大预览挡住，当前帧无法可靠确认。"
+      : slot.status === "tentative" ? "候选结果太接近，暂不打开卡牌大图；可在游戏中打开该卡特写再识别。"
+      : "当前帧没有可靠的卡牌身份。";
     panel.append(note);
+    if (slot.status === "tentative" && slot.candidates?.length) {
+      appendText(panel, "detail secondary", `候选：${slot.candidates.map((item) => item.name_en).join("、")}`);
+    }
   }
   document.querySelectorAll(".box,.card-row").forEach((element) =>
     element.classList.toggle("selected", element.dataset.key === key));
