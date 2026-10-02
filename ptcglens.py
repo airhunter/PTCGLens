@@ -34,6 +34,8 @@ def main() -> int:
     parser.add_argument("--cache-root", type=Path, help="游戏卡图缓存目录")
     parser.add_argument("--game-cache", type=Path, help="游戏卡牌数据库目录")
     parser.add_argument("--translation-root", type=Path, help="本地简中对照表目录")
+    parser.add_argument("--capture-mode", choices=("window", "screen"), default="window",
+                        help="window 支持切到浏览器后继续采集；screen 是前台截屏兼容模式")
     args = parser.parse_args()
     if not 1 <= args.port <= 65535:
         parser.error("端口必须在 1 到 65535 之间")
@@ -41,7 +43,7 @@ def main() -> int:
         parser.error("尚未建立卡牌索引；请先运行 uv run python cache_watch.py --once")
 
     viewer = [sys.executable, str(ROOT / "viewer.py"), "--port", str(args.port)]
-    recognizer = [sys.executable, str(ROOT / "battle_live.py")]
+    recognizer = [sys.executable, str(ROOT / "battle_live.py"), "--capture-mode", args.capture_mode]
     if args.cache_root is not None:
         viewer.extend(("--cache-root", str(args.cache_root)))
         recognizer.extend(("--cache-root", str(args.cache_root)))

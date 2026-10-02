@@ -16,6 +16,7 @@ from cache_search import load_index, read_image
 from cache_watch import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE, refresh_once
 from global_cards import LargeCardFinder
 from live_capture import client_bbox, game_window, set_dpi_awareness, user32
+from window_capture import WindowCaptureSession, crop_client_frame
 
 
 def load_resources(index_dir: Path, visual_dir: Path, card_data_path: Path) -> tuple[list, dict, dict, LargeCardFinder]:
@@ -101,7 +102,9 @@ def main() -> None:
     parser.add_argument("--change-threshold", type=float, default=8, help="卡位重识别的像素变化门槛")
     parser.add_argument("--force-after", type=float, default=10, help="卡位最长复用时间（秒）")
     parser.add_argument("--cache-interval", type=float, default=15, help="缓存增量检查间隔（秒）")
-    parser.add_argument("--max-idle", type=float, default=30, help="有限帧模式下等待游戏前台的最长秒数")
+    parser.add_argument("--max-idle", type=float, default=30, help="有限帧模式下等待游戏画面的最长秒数")
+    parser.add_argument("--capture-mode", choices=("window", "screen"), default="window",
+                        help="window 可在游戏被浏览器遮挡时继续采集；screen 为旧的前台截屏模式")
     parser.add_argument("--layout", type=Path, default=Path("battle_layout.sample.json"))
     parser.add_argument("--index-dir", type=Path, default=Path("output/index"))
     parser.add_argument("--visual-dir", type=Path, default=Path("output/card-thumbnails"))
@@ -120,6 +123,8 @@ def main() -> None:
     last_cache_check = 0.0
     number = 0
     idle_since = None
+    capture_session: WindowCaptureSession | None = None
+    capture_sequence = 0
     try:
         while args.frames == 0 or number < args.frames:
             started = time.monotonic()
@@ -136,6 +141,9 @@ def main() -> None:
             try:
                 hwnd, title = game_window(None)
             except RuntimeError:
+                if capture_session is not None:
+                    capture_session.stop()
+                    capture_session = None
                 if idle_since is None:
                     idle_since = time.monotonic()
                     print("游戏窗口未找到，等待启动", flush=True)
@@ -144,19 +152,45 @@ def main() -> None:
                     break
                 time.sleep(max(args.interval, .5))
                 continue
-            if hwnd != user32.GetForegroundWindow():
-                if idle_since is None:
-                    idle_since = time.monotonic()
-                    print("游戏未在前台，暂停截屏", flush=True)
-                if args.frames and time.monotonic() - idle_since >= args.max_idle:
-                    print("等待游戏前台超时，结束采样", flush=True)
-                    break
-                time.sleep(max(args.interval, .5))
-                continue
+            if args.capture_mode == "screen":
+                if hwnd != user32.GetForegroundWindow():
+                    if idle_since is None:
+                        idle_since = time.monotonic()
+                        print("游戏未在前台，暂停截屏", flush=True)
+                    if args.frames and time.monotonic() - idle_since >= args.max_idle:
+                        print("等待游戏前台超时，结束采样", flush=True)
+                        break
+                    time.sleep(max(args.interval, .5))
+                    continue
+                captured = ImageGrab.grab(bbox=client_bbox(hwnd), all_screens=True)
+                screenshot = cv2.cvtColor(np.asarray(captured), cv2.COLOR_RGB2BGR)
+            else:
+                if capture_session is not None and (capture_session.hwnd != hwnd or capture_session.closed):
+                    capture_session.stop()
+                    capture_session = None
+                if capture_session is None:
+                    try:
+                        capture_session = WindowCaptureSession(hwnd, args.interval)
+                    except Exception as exc:
+                        raise RuntimeError(
+                            "无法按窗口采集游戏画面；可用 --capture-mode screen 暂时恢复前台截屏"
+                        ) from exc
+                    capture_sequence = 0
+                    print("已连接游戏窗口采集；切到浏览器仍会继续接收游戏画面", flush=True)
+                latest = capture_session.newest(capture_sequence)
+                if latest is None:
+                    if idle_since is None:
+                        idle_since = time.monotonic()
+                        print("等待游戏窗口输出画面", flush=True)
+                    if args.frames and time.monotonic() - idle_since >= args.max_idle:
+                        print("等待游戏画面超时，结束采样", flush=True)
+                        break
+                    time.sleep(max(args.interval, .25))
+                    continue
+                capture_sequence, frame = latest
+                screenshot = crop_client_frame(frame, hwnd)
             idle_since = None
             bbox = client_bbox(hwnd)
-            captured = ImageGrab.grab(bbox=bbox, all_screens=True)
-            screenshot = cv2.cvtColor(np.asarray(captured), cv2.COLOR_RGB2BGR)
             scene = "battle" if is_battle_screen(screenshot) else "other"
             preview = preview_finder.find(screenshot, cards)
             if scene == "battle":
@@ -178,7 +212,7 @@ def main() -> None:
             save_frame(args.output_dir, screenshot, results, {
                 "captured_at": time.time(), "frame": number, "window_title": title,
                 "window_client_bbox": list(bbox), "reference_cards": len(visuals),
-                "scene": scene,
+                "scene": scene, "capture_mode": args.capture_mode,
                 "reused_slots": reused, "recomputed_slots": len(results) - reused,
             })
             print(f"第 {number} 帧：" + (
@@ -189,6 +223,9 @@ def main() -> None:
                 time.sleep(max(0, args.interval - (time.monotonic() - started)))
     except KeyboardInterrupt:
         pass
+    finally:
+        if capture_session is not None:
+            capture_session.stop()
 
 
 if __name__ == "__main__":

@@ -91,7 +91,9 @@ def visible_windows() -> list[tuple[int, str]]:
         return True
 
     if not user32.EnumWindows(callback, 0):
-        raise ctypes.WinError(ctypes.get_last_error())
+        error = ctypes.get_last_error()
+        if error:
+            raise ctypes.WinError(error)
     return found
 
 

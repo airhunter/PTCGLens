@@ -384,7 +384,7 @@ function refreshClock() {
   if (!lastCapture) return;
   const age = Math.max(0, Math.floor(Date.now() / 1000 - lastCapture));
   $("pulse").className = `pulse ${age <= 4 ? "live" : "stale"}`;
-  $("connection").textContent = age <= 4 ? "实时画面" : "画面已暂停";
+  $("connection").textContent = age <= 4 ? "收到游戏画面" : "等待游戏新画面";
   $("updated").textContent = `更新于 ${age} 秒前`;
 }
 
