@@ -32,17 +32,28 @@ def large_card_bytes(card_id: str, cache_root: Path, large_dir: Path, visual_dir
     """从本机游戏缓存按需提取完整卡图，并复用提取结果。"""
     if not CARD_ID.fullmatch(card_id):
         raise FileNotFoundError(card_id)
-    directory = next((path for path in (cache_root / card_id, cache_root / f"{card_id}_t")
-                      if path.is_dir()), None)
-    if directory is None:
+    source = None
+    for directory in (cache_root / card_id, cache_root / f"{card_id}_t"):
+        if not directory.is_dir():
+            continue
+        bundles = sorted(directory.rglob("__data"), key=lambda path: path.stat().st_mtime_ns, reverse=True)
+        if bundles:
+            source = (directory, bundles[0])
+            break
+    if source is None:
         return (visual_dir / f"{card_id}.png").read_bytes()
-    bundles = sorted(directory.rglob("__data"), key=lambda path: path.stat().st_mtime_ns, reverse=True)
-    if not bundles:
-        return (visual_dir / f"{card_id}.png").read_bytes()
-    bundle = bundles[0]
+    directory, bundle = source
     destination = large_dir / f"{card_id}.png"
-    if destination.is_file() and destination.stat().st_mtime_ns >= bundle.stat().st_mtime_ns:
-        return destination.read_bytes()
+    source_path = destination.with_suffix(".source.json")
+    stat = bundle.stat()
+    fingerprint = {"bundle_path":str(bundle.resolve()),"bundle_size":stat.st_size,
+                   "bundle_mtime_ns":stat.st_mtime_ns}
+    if destination.is_file() and source_path.is_file():
+        try:
+            if json.loads(source_path.read_text(encoding="utf-8")) == fingerprint:
+                return destination.read_bytes()
+        except (OSError,ValueError):
+            pass  # 不复用损坏或不同来源的缓存，尤其不能把旧缩略图当作新原图。
     import cv2
     from verify_card import extract_card
 
@@ -58,6 +69,9 @@ def large_card_bytes(card_id: str, cache_root: Path, large_dir: Path, visual_dir
     body = encoded.tobytes()
     temporary.write_bytes(body)
     temporary.replace(destination)
+    source_temp = source_path.with_name(f".{card_id}.{threading.get_ident()}.source.tmp.json")
+    source_temp.write_text(json.dumps(fingerprint),encoding="utf-8")
+    source_temp.replace(source_path)
     return body
 
 

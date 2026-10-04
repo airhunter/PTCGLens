@@ -1,6 +1,7 @@
 import unittest
 
-from overlay_model import frame_point, popup_position, shortcut_keys
+from overlay_model import (frame_point, intersect_rect, map_rect, popup_position,
+                           relative_rect, restore_rect, shortcut_keys)
 
 
 class OverlayRulesTest(unittest.TestCase):
@@ -24,6 +25,25 @@ class OverlayRulesTest(unittest.TestCase):
         for text in ("Q", "Ctrl+Ctrl", "Ctrl+Space", "Ctrl+F25"):
             with self.assertRaises(ValueError):
                 shortcut_keys(text)
+
+    def test_dpi_mapping_preserves_window_offset_on_secondary_monitor(self):
+        physical = (-1920, 0, 0, 1080)
+        logical = (-1920, 0, -384, 864)
+        self.assertEqual(map_rect((-1700,125,-450,1000), physical, logical), (-1744,100,-744,800))
+
+    def test_popup_stays_inside_offset_game_window_and_avoids_card(self):
+        bounds = intersect_rect((400,200,1500,1000), (0,0,1920,1080), margin=8)
+        x,y = popup_position((1350,850,1490,980), (350,700), bounds)
+        self.assertGreaterEqual(x,bounds[0])
+        self.assertGreaterEqual(y,bounds[1])
+        self.assertLessEqual(x+350,bounds[2])
+        self.assertLessEqual(y+700,bounds[3])
+        self.assertLessEqual(x+350,1350)
+
+    def test_game_move_and_resize_updates_card_anchor(self):
+        relative = relative_rect((900,500,1080,750), (300,100,1500,1000))
+        self.assertEqual(restore_rect(relative,(600,200,1800,1100)), (1200,600,1380,850))
+        self.assertEqual(restore_rect(relative,(600,200,1400,800)), (1000,467,1120,633))
 
 
 if __name__ == "__main__":

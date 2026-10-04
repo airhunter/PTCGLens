@@ -47,3 +47,30 @@ def popup_position(card: tuple[int, int, int, int], size: tuple[int, int],
         x, y = pos
         return max(0, min(right, x+width)-max(left, x))*max(0, min(bottom, y+height)-max(top, y))
     return min(clamped, key=overlap)
+
+
+def map_rect(rect: tuple[float, float, float, float],
+             source: tuple[int, int, int, int], target: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """按显示器原点与尺寸，将物理像素坐标转换为 Qt 逻辑坐标。"""
+    sx, sy, sr, sb = source
+    tx, ty, tr, tb = target
+    return tuple(round((value-source[i%2]) * ((tr-tx)/(sr-sx) if i%2 == 0 else (tb-ty)/(sb-sy))
+                       + target[i%2]) for i, value in enumerate(rect))
+
+
+def intersect_rect(first, second, margin=0):
+    left, top = max(first[0], second[0])+margin, max(first[1], second[1])+margin
+    right, bottom = min(first[2], second[2])-margin, min(first[3], second[3])-margin
+    return (left, top, right, bottom) if right > left and bottom > top else None
+
+
+def relative_rect(box, reference):
+    left, top, right, bottom = reference
+    return tuple((value-reference[i%2])/(right-left if i%2 == 0 else bottom-top)
+                 for i, value in enumerate(box))
+
+
+def restore_rect(relative, reference):
+    left, top, right, bottom = reference
+    return tuple(round(value*(right-left if i%2 == 0 else bottom-top)+reference[i%2])
+                 for i, value in enumerate(relative))

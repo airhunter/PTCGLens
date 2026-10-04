@@ -47,10 +47,18 @@ class MouseTrigger(threading.Thread):
         self.last_click = None
         self.dismiss_callback = dismiss_callback
         self.dismiss_enabled = False
+        self.outside_dismiss_enabled = False
+        self.popup_hwnd = None
         self.escape_swallowed = False
 
     def configure(self, shortcut, button):
         self.config = (shortcut_keys(shortcut), button)
+
+    def dismiss_outside_click(self, message, hovered_root):
+        """只通知收起；普通左键始终继续传给原窗口，浮卡内按钮仍可操作。"""
+        if (message == 0x0201 and self.outside_dismiss_enabled and self.popup_hwnd
+                and hovered_root != self.popup_hwnd and self.dismiss_callback):
+            self.dismiss_callback()
 
     def run(self):
         set_dpi_awareness()
@@ -88,6 +96,11 @@ class MouseTrigger(threading.Thread):
                             else:
                                 self.swallowed_up = up
                                 return 1
+                # 查询点击优先；鼠标左键查询不会先被当作关闭动作。
+                if message == 0x0201 and self.outside_dismiss_enabled:
+                    point = ctypes.cast(data, ctypes.POINTER(MouseData)).contents.pt
+                    hovered = user32.WindowFromPoint(point)
+                    self.dismiss_outside_click(message, user32.GetAncestor(hovered, 2))
             return user32.CallNextHookEx(None, code, message, data)
 
         @PROC

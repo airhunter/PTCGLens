@@ -122,6 +122,7 @@ def make_card(resource_id: str, row: dict, translations: dict[str, dict]) -> dic
             "name_zh": translation(raw_name, translations["attks-name"])
                 or translation(attack_name, translations["attks-name"]),
             "damage": row.get("Damage" + suffix) or None,
+            "cost": row.get("EN Cost" + suffix) or "",
             "text_en": effect_en or None,
             "text_zh": translation(effect_en, translations["attks-text"]),
         })
@@ -132,6 +133,9 @@ def make_card(resource_id: str, row: dict, translations: dict[str, dict]) -> dic
         "name_en": name_en,
         "name_zh": translation(name_en, translations["names"]),
         "hp": row.get("HP"),
+        "category": row.get("category"),
+        "type": row.get("EN Type"),
+        "regulation_mark": row.get("Regulations symbol"),
         "set_code": row.get("setCode"),
         "number": row.get("EN Card #"),
         "attacks": attacks,

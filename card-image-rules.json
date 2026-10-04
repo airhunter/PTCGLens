@@ -1,0 +1,23 @@
+{
+  "Ultra Ball": {
+    "english": [
+      "00bbf6cfe0febcfa717e7dd30879eaf7ea3358472885676de4052199ba41ea53",
+      "93087a4ce66c6ed5242f915cf59739508fa1fcdbad12b5632697d08a2f73650b",
+      "a88df6b1d4da28d711e184e0dfcc8f2006ebff951f8535bf3ac09e1b270dc4db"
+    ],
+    "chinese": [
+      "195971e2b6c57612638df298f38cc3244736b8a37a860233d6c485985305f7ab",
+      "52582cbef0608f4d93599cac60efb9fed7fde5c3605690f8b0902b26dd16a414",
+      "5ccbf0af6716075d5d5c14640d1a61de010610a7e759b1537c851cc720afa6ed",
+      "8d84ab535b5f5eb2beb7ec8563b11abe337d5ccd2e16ca4a06f691a89dcda128"
+    ]
+  },
+  "Maximum Belt": {
+    "english": [
+      "20f12806f273e8d9ee1f292c5de79ef9cd891868881d9b5f695a9f9e77fa3463"
+    ],
+    "chinese": [
+      "4465dca9d65396cb2f9e245b71852e307b074f85b5bedb0e803a347e2ed9c516"
+    ]
+  }
+}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import cv2
 import numpy as np
 
@@ -85,7 +87,79 @@ class LargeCardFinder:
                 "inlier_ratio": round(inliers / len(matches), 3),
                 "candidates": [], "possible_printings": [record["card_id"]],
             })
-        return max(found, key=lambda result: result["sift_inliers"], default=None)
+        result = max(found, key=lambda result: result["sift_inliers"], default=None)
+        if result and point is not None and result["status"] == "tentative":
+            result = self.refine_pointed(result, points, descriptors, groups, cards, point)
+        return result
+
+    @staticmethod
+    def rules_signature(card):
+        """只比较规则原文，避免中文覆盖率或系列编号造成相同规则被判为不同。"""
+        return json.dumps({"hp":card.get("hp"), "text":card.get("card_text_en"),
+            "attacks":[{key:attack.get(key) for key in
+                        ("kind","name_en","damage","cost","text_en")}
+                       for attack in card.get("attacks",[])]},sort_keys=True)
+
+    def refine_pointed(self, seed, points, descriptors, groups, cards, point):
+        """全库检索用于找候选；在指向实例内逐卡验证，避免相似印次分走特征。"""
+        polygon = np.float32(seed["polygon"])
+        selected = [i for i,keypoint in enumerate(points)
+                    if cv2.pointPolygonTest(polygon,keypoint.pt,False) >= 0]
+        if len(selected) < 25:
+            return seed
+        local = descriptors[selected]
+        # 只验证有全库匹配证据的少量候选，不把附近特写的特征移到手牌上。
+        owners = sorted((owner for owner in groups if len(groups[owner]) >= 12),
+                        key=lambda owner:len(groups[owner]),reverse=True)[:8]
+        seed_owner = next(owner for owner,record in enumerate(self.records)
+                          if record["card_id"] == seed["card_id"])
+        if seed_owner not in owners:
+            owners.append(seed_owner)
+        verified = []
+        for owner in owners:
+            record = self.records[owner]
+            pairs = cv2.BFMatcher(cv2.NORM_L2).knnMatch(local,record["descriptors"],k=2)
+            good = [pair[0] for pair in pairs if len(pair)==2
+                    and pair[0].distance < .72*pair[1].distance]
+            if len(good)<25:
+                continue
+            source = np.float32([record["points"][match.trainIdx] for match in good]).reshape(-1,1,2)
+            target = np.float32([points[selected[match.queryIdx]].pt for match in good]).reshape(-1,1,2)
+            matrix, mask = cv2.findHomography(source,target,cv2.RANSAC,3.)
+            if matrix is None or mask is None:
+                continue
+            valid = mask.ravel().astype(bool)
+            count, ratio = int(valid.sum()),float(valid.mean())
+            if count<25 or ratio<.6:
+                continue
+            card_width,card_height = record["dimensions"]
+            # 匹配点须分布于卡面，集中在一个图标或短文字上不足以确认。
+            spread = np.ptp(source[valid].reshape(-1,2),axis=0)/(card_width,card_height)
+            if spread[0]<.35 or spread[1]<.12:
+                continue
+            corners = cv2.perspectiveTransform(np.float32(
+                [[0,0],[card_width,0],[card_width,card_height],[0,card_height]]).reshape(-1,1,2),matrix).reshape(-1,2)
+            if (not np.isfinite(corners).all() or not cv2.isContourConvex(corners)
+                    or cv2.pointPolygonTest(corners,point,False)<0):
+                continue
+            # 复核几何位置必须与鼠标下的候选一致，不能重新跳到大特写。
+            distance = np.max(np.linalg.norm(corners-polygon,axis=1))
+            if distance > max(8.,np.linalg.norm(polygon[2]-polygon[0])*.08):
+                continue
+            card = cards.get(record["card_id"],{})
+            verified.append({**seed,"status":"matched","card_id":record["card_id"],
+                "name_en":card.get("name_en",record["card_id"]),"name_zh":card.get("name_zh"),
+                "sift_inliers":count,"inlier_ratio":round(ratio,3),"verification":"pointed-template",
+                "box":[round(float(value)) for value in (*corners.min(axis=0),*corners.max(axis=0))],
+                "polygon":np.round(corners).astype(int).tolist()})
+        if not verified:
+            return seed
+        best = max(verified,key=lambda result:result["sift_inliers"])
+        best["possible_printings"] = sorted({result["card_id"] for result in verified})
+        signatures = {self.rules_signature(cards.get(result["card_id"],{})) for result in verified}
+        if len(signatures)>1:
+            best["status"] = "tentative"
+        return best
 
     def find_at(self, screenshot: np.ndarray, cards: dict, point: tuple[int, int]) -> dict | None:
         """只匹配覆盖鼠标点的卡牌，局部裁剪减少无关卡牌和计算量。"""

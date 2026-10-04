@@ -57,6 +57,39 @@ class PointerRecognitionTest(unittest.TestCase):
         self.assertEqual(result["card_id"], "0")
         self.assertGreater(result["box"][1], 540)
 
+    def refine_shared_printings(self,cards):
+        # 全库阶段只有弱候选；逐卡复核能找回被相似印次分走的匹配点。
+        original = self.finder.records[0]
+        records = [original,{**original,"card_id":"reprint"}]
+        finder = LargeCardFinder(records)
+        canvas = np.full((650,1100,3),70,dtype=np.uint8)
+        canvas[30:534,80:440] = cv2.resize(self.images[0],(360,504))
+        canvas[550:650,150:330] = self.images[0][:100]
+        points,descriptors = finder.sift.detectAndCompute(cv2.cvtColor(canvas,cv2.COLOR_BGR2GRAY),None)
+        seed = {"status":"tentative","card_id":"0","sift_inliers":21,
+                "box":[150,550,330,802],"polygon":[[150,550],[330,550],[330,802],[150,802]]}
+        return finder.refine_pointed(seed,points,descriptors,
+                                   {0:[None]*21,1:[None]*14},cards,(240.,590.))
+
+    def test_weak_hand_candidate_is_verified_despite_shared_printings(self):
+        card = {"name_en":"Test","hp":100,"card_text_en":"Same rule","attacks":[]}
+        result = self.refine_shared_printings({"0":card,"reprint":dict(card)})
+        self.assertEqual(result["status"],"matched")
+        self.assertEqual(result["possible_printings"],["0","reprint"])
+        self.assertGreaterEqual(result["sift_inliers"],25)
+        self.assertGreater(result["box"][1],540)  # 没有跳到更大的特写。
+
+    def test_shared_art_with_different_rules_remains_unconfirmed(self):
+        result = self.refine_shared_printings({"0":{"card_text_en":"Draw one card"},
+                                               "reprint":{"card_text_en":"Draw three cards"}})
+        self.assertEqual(result["status"],"tentative")
+
+    def test_local_chinese_coverage_does_not_change_rule_identity(self):
+        english = {"hp":100,"attacks":[{"name_en":"Attack","text_en":"Rule","damage":"30"}]}
+        chinese = {"hp":100,"name_zh":"测试卡","attacks":[{"name_en":"Attack","text_en":"Rule",
+                              "damage":"30","name_zh":"招式","text_zh":"效果"}]}
+        self.assertEqual(LargeCardFinder.rules_signature(english),LargeCardFinder.rules_signature(chinese))
+
 
 if __name__ == "__main__":
     unittest.main()
