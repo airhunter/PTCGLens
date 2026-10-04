@@ -16,11 +16,12 @@ import cv2
 import numpy as np
 
 from viewer import large_card_bytes
+from card_translation import readable_text
 
 
 DATA_ROOT = "https://raw.githubusercontent.com/duanxr/PTCG-CHS-Datasets/main/"
 CATALOG_URL = DATA_ROOT+"ptcg_chs_infos.json"
-MAPPING_VERSION = 2
+MAPPING_VERSION = 3
 ENERGY_CODES = {"1":"G","2":"R","3":"W","4":"L","5":"P","6":"F",
                 "7":"D","8":"M","9":"Y","11":"C"}
 ENGLISH_ENERGY = {"Grass":"G","Fire":"R","Water":"W","Lightning":"L","Psychic":"P",
@@ -31,6 +32,12 @@ def normal(text):
     value = html.unescape(re.sub(r"<[^>]*>","",str(text or "")))
     value = unicodedata.normalize("NFKD",value).casefold().replace("×","x")
     return "".join(char for char in value if char.isalnum())
+
+
+def rule_normal(text):
+    """规则比较保留能量图标、数字及运算符，避免 30+ 和 30 被当成同一效果。"""
+    value = unicodedata.normalize("NFKD", readable_text(str(text or ""))).casefold().replace("×", "x")
+    return "".join(char for char in value if char.isalnum() or char in "+-=*/<>")
 
 
 def effect_text(text):
@@ -72,7 +79,11 @@ def chinese_rules_match(card, candidate, bridges):
             return False
         chinese = effect_text(details.get("ruleText"))
         if card.get("card_text_zh"):
-            return normal(card["card_text_zh"]) == normal(chinese)
+            if rule_normal(card["card_text_zh"]) == rule_normal(chinese):
+                return True
+            if card.get("card_text_zh_source") != "local":
+                return False
+            # 本地参考译文与简中卡面措辞不同时，仍可使用已逐条核对的规则桥。
         bridge = bridges.get(card.get("name_en"),{})
         return (digest(card.get("card_text_en")) in bridge.get("english",[])
                 and digest(chinese) in bridge.get("chinese",[]))
@@ -84,13 +95,13 @@ def chinese_rules_match(card, candidate, bridges):
     for move,attack in zip(moves,card["attacks"]):
         if (move["kind"] != attack["kind"] or not attack.get("name_zh")
                 or normal(move["name"]) != normal(attack["name_zh"])
-                or normal(move["damage"]) != normal(attack.get("damage"))):
+                or rule_normal(move["damage"]) != rule_normal(attack.get("damage"))):
             return False
         if attack["kind"] == "attack" and ("cost" not in attack or sorted(move["cost"]) != sorted(attack["cost"])):
             return False
         if attack.get("text_en") and not attack.get("text_zh"):
             return False
-        if normal(move["text"]) != normal(attack.get("text_zh")):
+        if rule_normal(move["text"]) != rule_normal(attack.get("text_zh")):
             return False
     return True
 
@@ -112,14 +123,14 @@ def english_rules_match(card, remote):
             or int(card.get("hp") or 0) != int(remote.get("hp") or 0)):
         return False
     if not card.get("hp"):
-        return bool(card.get("card_text_en")) and normal(card["card_text_en"]) == normal(remote.get("effect"))
+        return bool(card.get("card_text_en")) and rule_normal(card["card_text_en"]) == rule_normal(remote.get("effect"))
     moves = [("ability",m) for m in remote.get("abilities",[])]+[("attack",m) for m in remote.get("attacks",[])]
     if len(moves) != len(card.get("attacks",[])):
         return False
     for (kind,move),attack in zip(moves,card["attacks"]):
         if (kind != attack["kind"] or normal(move.get("name")) != normal(attack["name_en"])
-                or normal(move.get("effect")) != normal(attack.get("text_en"))
-                or normal(move.get("damage")) != normal(attack.get("damage"))):
+                or rule_normal(move.get("effect")) != rule_normal(attack.get("text_en"))
+                or rule_normal(move.get("damage")) != rule_normal(attack.get("damage"))):
             return False
         if kind=="attack" and "cost" in attack:
             cost = [ENGLISH_ENERGY.get(energy,"?") for energy in move.get("cost",[])]

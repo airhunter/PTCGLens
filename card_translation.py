@@ -10,6 +10,7 @@ import threading
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from atomic_json import read_json_retry, write_json_atomic
 
 
 API_URL = "https://api.mymemory.translated.net/get"
@@ -70,7 +71,7 @@ class TranslationCache:
         self.path = path
         self.lock = threading.Lock()
         try:
-            self.entries = json.loads(path.read_text(encoding="utf-8"))
+            self.entries = read_json_retry(path)
         except (FileNotFoundError, json.JSONDecodeError):
             self.entries = {}
 
@@ -84,8 +85,5 @@ class TranslationCache:
                 return self.entries[key], True
             translated = "\n".join(translate_segment(part) for part in segments(normalized))
             self.entries[key] = translated
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = self.path.with_name(f".{self.path.name}.{threading.get_ident()}.tmp")
-            temporary.write_text(json.dumps(self.entries, ensure_ascii=False, indent=2), encoding="utf-8")
-            temporary.replace(self.path)
+            write_json_atomic(self.path, self.entries)
             return translated, False

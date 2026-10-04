@@ -90,6 +90,20 @@ class PointerRecognitionTest(unittest.TestCase):
                               "damage":"30","name_zh":"招式","text_zh":"效果"}]}
         self.assertEqual(LargeCardFinder.rules_signature(english),LargeCardFinder.rules_signature(chinese))
 
+    def test_rule_identity_ignores_layout_but_preserves_damage_and_cost(self):
+        card = {"card_text_en":"Discard 2 cards.\n\nDraw 3 cards.","attacks":[
+            {"kind":"attack","name_en":"Attack","text_en":"Draw 1 card.","damage":"30+","cost":"FC"}]}
+        reprint = {**card,"card_text_en":"Discard 2 cards.\nDraw 3 cards."}
+        self.assertEqual(LargeCardFinder.rules_signature(card),LargeCardFinder.rules_signature(reprint))
+        for replacement in ({"damage":"30"},{"cost":"F"},{"text_en":"Draw 2 cards."}):
+            different = {**card,"attacks":[{**card["attacks"][0],**replacement}]}
+            self.assertNotEqual(LargeCardFinder.rules_signature(card),LargeCardFinder.rules_signature(different))
+
+    def test_basic_energy_types_are_not_equivalent_without_effect_text(self):
+        fighting={"name_en":"Basic {F} Energy","hp":0,"card_text_en":None,"attacks":[]}
+        water={**fighting,"name_en":"Basic {W} Energy"}
+        self.assertNotEqual(LargeCardFinder.rules_signature(fighting),LargeCardFinder.rules_signature(water))
+
 
 if __name__ == "__main__":
     unittest.main()

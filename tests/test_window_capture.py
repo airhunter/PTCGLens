@@ -65,6 +65,21 @@ class WindowCaptureTests(unittest.TestCase):
         self.assertIs(image, frame)
         bounds.assert_not_called()
 
+    def test_old_frame_after_resize_is_rejected_in_pointer_query(self):
+        old = np.zeros((1080, 1920, 3), dtype=np.uint8)
+        with patch.object(window_capture, "client_bbox", return_value=(600, 300, 1880, 1020)), \
+                patch.object(window_capture, "window_bounds", return_value=[(592, 270, 1888, 1028)]):
+            with self.assertRaisesRegex(RuntimeError, "尺寸已改变"):
+                window_capture.crop_client_frame(old, 123, strict=True)
+
+    def test_closed_session_never_returns_previous_game_frame(self):
+        with patch.object(window_capture, "WindowsCapture", FakeCapture):
+            session = window_capture.WindowCaptureSession(123, 1)
+        session._capture.handlers["on_frame_arrived"](type("Frame", (), {"frame_buffer": np.zeros((3,4,4), np.uint8)})(), None)
+        self.assertIsNotNone(session.newest(0))
+        session._capture.handlers["on_closed"]()
+        self.assertIsNone(session.newest(0))
+
 
 if __name__ == "__main__":
     unittest.main()

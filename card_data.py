@@ -11,6 +11,9 @@ import struct
 import subprocess
 from pathlib import Path
 
+from atomic_json import read_json_retry, write_json_atomic
+from local_chinese import LOCAL_CHINESE_PATH, coverage_report, load_local_chinese, resolve_chinese
+
 
 RESOURCE_ID = re.compile(r"^(.+)_en_(\d{3})$")
 NUMBER_TYPES = {
@@ -86,7 +89,7 @@ def parse_table(blob: bytes) -> list[dict]:
 
 
 def read_game_database(path: Path) -> list[dict]:
-    wrapper = json.loads(path.read_text(encoding="utf-8"))
+    wrapper = read_json_retry(path)
     binary = wrapper["keys"]["table"]["contentBinary"]
     return parse_table(base64.b64decode(binary))
 
@@ -105,8 +108,12 @@ def translation(text: str, table: dict[str, str]) -> str | None:
     return table.get(hashlib.md5(text.encode("utf-8")).hexdigest())
 
 
-def make_card(resource_id: str, row: dict, translations: dict[str, dict]) -> dict:
+def make_card(resource_id: str, row: dict, translations: dict[str, dict], local: dict | None = None) -> dict:
+    def chinese(text, kind):
+        return resolve_chinese(text, kind, translations, local or {})
+
     name_en = row.get("EN Card Name") or ""
+    name_zh, name_source = chinese(name_en, "names")
     attacks = []
     for number in range(1, 5):
         suffix = "" if number == 1 else f" {number}"
@@ -116,22 +123,29 @@ def make_card(resource_id: str, row: dict, translations: dict[str, dict]) -> dic
         is_ability = raw_name.startswith("[Ability] ")
         attack_name = raw_name.removeprefix("[Ability] ")
         effect_en = row.get(f"EN Attack Text{suffix}") or ""
+        attack_zh, attack_source = chinese(raw_name, "attks-name")
+        if not attack_zh:
+            attack_zh, attack_source = chinese(attack_name, "attks-name")
+        effect_zh, effect_source = chinese(effect_en, "attks-text")
         attacks.append({
             "kind": "ability" if is_ability else "attack",
             "name_en": attack_name,
-            "name_zh": translation(raw_name, translations["attks-name"])
-                or translation(attack_name, translations["attks-name"]),
+            "name_zh": attack_zh,
+            "name_zh_source": attack_source,
             "damage": row.get("Damage" + suffix) or None,
             "cost": row.get("EN Cost" + suffix) or "",
             "text_en": effect_en or None,
-            "text_zh": translation(effect_en, translations["attks-text"]),
+            "text_zh": effect_zh,
+            "text_zh_source": effect_source,
         })
     card_text_en = (row.get("EN Attack Text") or "") if not attacks else ""
+    card_zh, card_source = chinese(card_text_en, "attks-text")
     return {
         "card_id": resource_id,
         "game_card_id": row.get("cardID"),
         "name_en": name_en,
-        "name_zh": translation(name_en, translations["names"]),
+        "name_zh": name_zh,
+        "name_zh_source": name_source,
         "hp": row.get("HP"),
         "category": row.get("category"),
         "type": row.get("EN Type"),
@@ -140,12 +154,14 @@ def make_card(resource_id: str, row: dict, translations: dict[str, dict]) -> dic
         "number": row.get("EN Card #"),
         "attacks": attacks,
         "card_text_en": card_text_en or None,
-        "card_text_zh": translation(card_text_en, translations["attks-text"]),
+        "card_text_zh": card_zh,
+        "card_text_zh_source": card_source,
     }
 
 
-def build_card_data(index_dir: Path, game_cache: Path, translation_root: Path, output: Path) -> dict:
-    manifest = json.loads((index_dir / "manifest.json").read_text(encoding="utf-8"))
+def build_card_data(index_dir: Path, game_cache: Path, translation_root: Path, output: Path,
+                    *, supplement_path: Path = LOCAL_CHINESE_PATH) -> dict:
+    manifest = read_json_retry(index_dir / "manifest.json")
     indexed_ids = [record["card_id"] for record in manifest["cards"]]
     requested = {resource_id: game_id(resource_id) for resource_id in indexed_ids}
     set_codes = {set_code for set_code, _ in requested.values()}
@@ -164,6 +180,7 @@ def build_card_data(index_dir: Path, game_cache: Path, translation_root: Path, o
         name: json.loads((translation_root / f"{name}.json").read_text(encoding="utf-8"))
         for name in ("names", "attks-name", "attks-text")
     }
+    local = load_local_chinese(supplement_path)
     cards = {}
     missing = []
     for resource_id, (_, internal_id) in requested.items():
@@ -171,7 +188,16 @@ def build_card_data(index_dir: Path, game_cache: Path, translation_root: Path, o
         if row is None:
             missing.append(resource_id)
             continue
-        cards[resource_id] = make_card(resource_id, row, translations)
+        cards[resource_id] = make_card(resource_id, row, translations, local)
+
+    if missing and output.is_file():
+        try:
+            previous = read_json_retry(output).get("cards", {})
+        except (OSError, ValueError):
+            previous = {}
+        lost = set(missing).intersection(previous)
+        if lost:
+            raise RuntimeError(f"游戏数据库暂不完整，保留上次资料（缺少 {len(lost)} 张已收录卡牌）")
 
     attacks = [attack for card in cards.values() for attack in card["attacks"]]
     effects = [attack for attack in attacks if attack["text_en"]]
@@ -200,12 +226,14 @@ def build_card_data(index_dir: Path, game_cache: Path, translation_root: Path, o
             "translation_revision": revision.stdout.strip() if revision.returncode == 0 else None,
             "translation_license": "GPL-3.0",
             "game_cache": str(game_cache),
+            "local_translation_revision": hashlib.sha256(supplement_path.read_bytes()).hexdigest(),
+            "local_translation_kind": "reference_translation",
         },
         "stats": stats,
         "cards": cards,
+        "coverage": coverage_report(cards),
     }
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json_atomic(output, document)
     return document
 
 
@@ -215,8 +243,10 @@ def main() -> None:
     parser.add_argument("--game-cache", type=Path, default=Path.home() / "AppData/LocalLow/pokemon/Pokemon TCG Live/config-cache")
     parser.add_argument("--translation-root", type=Path, default=Path(".tmp/ptcg-live-zh-mod/databases_zh-CN"))
     parser.add_argument("--output", type=Path, default=Path("output/card-data.json"))
+    parser.add_argument("--coverage-report", type=Path, default=Path("output/chinese-coverage.json"))
     args = parser.parse_args()
     document = build_card_data(args.index_dir, args.game_cache, args.translation_root, args.output)
+    write_json_atomic(args.coverage_report, document["coverage"])
     print(json.dumps(document["stats"], ensure_ascii=False, indent=2))
 
 

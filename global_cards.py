@@ -14,7 +14,7 @@ class LargeCardFinder:
         lengths = [len(record["descriptors"]) for record in records]
         self.offsets = np.r_[0, np.cumsum(lengths)]
         self.owners = np.repeat(np.arange(len(records), dtype=np.int32), lengths)
-        descriptors = np.vstack([record["descriptors"] for record in records]).astype(np.float32)
+        descriptors = np.vstack([record["descriptors"] for record in records]).astype(np.float32, copy=False)
         self.matcher = cv2.FlannBasedMatcher(dict(algorithm=1, trees=4), dict(checks=64))
         self.matcher.add([descriptors])
         self.matcher.train()
@@ -95,8 +95,11 @@ class LargeCardFinder:
     @staticmethod
     def rules_signature(card):
         """只比较规则原文，避免中文覆盖率或系列编号造成相同规则被判为不同。"""
-        return json.dumps({"hp":card.get("hp"), "text":card.get("card_text_en"),
-            "attacks":[{key:attack.get(key) for key in
+        def clean(value):
+            # 空格、换行属于排版差异，数字、标点和效果措辞保持原样。
+            return " ".join(value.split()) if isinstance(value,str) else value
+        return json.dumps({"name":clean(card.get("name_en")),"hp":card.get("hp"), "text":clean(card.get("card_text_en")),
+            "attacks":[{key:clean(attack.get(key)) for key in
                         ("kind","name_en","damage","cost","text_en")}
                        for attack in card.get("attacks",[])]},sort_keys=True)
 
@@ -170,6 +173,18 @@ class LargeCardFinder:
         if right <= left or bottom <= top:
             return None
         result = self.find(screenshot[top:bottom, left:right], cards, (float(x-left), float(y-top)))
+        if result is None or result["status"]=="tentative":
+            # 小图上的原始特征不足时，局部重采样；仍沿用内点数和规则确认门槛。
+            near_left,near_top=max(0,x-round(width*.085)),max(0,y-round(height*.18))
+            near_right,near_bottom=min(width,x+round(width*.085)),min(height,y+round(height*.18))
+            enlarged=cv2.resize(screenshot[near_top:near_bottom,near_left:near_right],None,
+                                fx=2,fy=2,interpolation=cv2.INTER_CUBIC)
+            refined=self.find(enlarged,cards,(float((x-near_left)*2),float((y-near_top)*2)))
+            if refined and (refined["status"]=="matched" or result is None):
+                refined["box"]=[round(value/2)+(near_left if i%2==0 else near_top)
+                                for i,value in enumerate(refined["box"])]
+                refined["polygon"]=[[round(px/2)+near_left,round(py/2)+near_top] for px,py in refined["polygon"]]
+                return refined
         if result:
             result["box"] = [value + (left if i % 2 == 0 else top)
                              for i, value in enumerate(result["box"])]

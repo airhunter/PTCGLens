@@ -59,6 +59,15 @@ class ReadingCardTest(unittest.TestCase):
         self.assertEqual(self.popup.labels[0][0].text(), "待确认")
         self.assertEqual(len(self.popup.labels), 1)
 
+    def test_local_chinese_has_translation_mark_and_no_network_button(self):
+        self.card["attacks"][1].update(name_zh="参考名称", name_zh_source="local", text_zh="参考译文", text_zh_source="local")
+        self.popup.show_result({"id":2, "card":self.card})
+        self.assertEqual(self.popup.text_labels[2].text(), "参考译文")
+        self.assertEqual(self.popup.source_badge.text(), "中 · 译")
+        self.assertNotIn(2, self.popup.buttons)
+        self.popup.translated(2, 2, "迟到的网络译文")
+        self.assertEqual(self.popup.text_labels[2].text(), "参考译文")
+
     def assert_content_fully_visible(self):
         self.popup.show()
         self.app.processEvents()
@@ -107,7 +116,7 @@ class ReadingCardTest(unittest.TestCase):
         self.assertTrue(self.popup.fit_to_area(900,840))
         displayed = self.popup.image.pixmap()
         self.assertAlmostEqual(displayed.width()/displayed.height(),240/336,places=2)
-        self.assertGreaterEqual(displayed.height(),220)
+        self.assertGreaterEqual(displayed.height(),160)
         self.assert_content_fully_visible()
 
     def test_thumbnail_is_not_enlarged_on_125_percent_screen(self):
@@ -129,11 +138,34 @@ class ReadingCardTest(unittest.TestCase):
         with patch.object(self.popup,"devicePixelRatioF",return_value=1.25):
             self.popup.set_art_pixmap(image)
             displayed = self.popup.image.pixmap()
-            self.assertGreater(displayed.width(),300)
-            self.assertEqual(displayed.height(),525)
+            self.assertEqual(displayed.width(),round(self.popup.image.width()*1.25))
             self.assertEqual(displayed.devicePixelRatio(),1.25)
-            self.assertEqual(self.popup.image.height(),420)
+            self.assertAlmostEqual(displayed.height()/1.25,self.popup.image.height(),delta=1)
+            self.assertAlmostEqual(displayed.width()/displayed.height(),686/962,places=2)
             self.assertIn("HD",self.popup.source_badge.text())
+
+    def test_thumbnail_upgrade_to_hd_keeps_side_by_side_rules_without_clipping(self):
+        self.popup.show_result({"id":2,"card":self.card})
+        thumbnail = QPixmap(171,240)
+        thumbnail.fill(QColor("yellow"))
+        with patch.object(self.popup,"devicePixelRatioF",return_value=1.25):
+            self.popup.set_art_pixmap(thumbnail)
+            self.assert_content_fully_visible()
+            self.assertGreater(self.popup.rules.x(),self.popup.image.x()+self.popup.image.width())
+            self.assertGreaterEqual(self.popup.rules.width(),150)
+            self.assertLess(self.popup.buttons[2].width(),self.popup.rules.width()/2)
+            self.popup.translated(2,2,"选择自己牌库中的一张宝可梦，加入手牌，然后重洗牌库。"*4)
+            self.assert_content_fully_visible()
+            large = QPixmap(686,962)
+            large.fill(QColor("yellow"))
+            self.popup.set_art_pixmap(large)
+            self.assert_content_fully_visible()
+            self.assertGreater(self.popup.rules.x(),self.popup.image.x()+self.popup.image.width())
+            self.assertEqual(self.popup.width(),350)
+            for widget in (self.popup.image,self.popup.rules):
+                bottom = widget.mapTo(self.popup,widget.rect().bottomRight())
+                self.assertLess(bottom.x(),self.popup.width())
+                self.assertLess(bottom.y(),self.popup.height())
 
     def chinese_image_payload(self):
         image = QImage(600,825,QImage.Format.Format_RGB32)

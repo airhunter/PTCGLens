@@ -10,6 +10,8 @@ from pathlib import Path
 from battle_multi import build_visual_index
 from cache_search import update_index
 from card_data import build_card_data
+from local_chinese import LOCAL_CHINESE_PATH
+from atomic_json import write_json_atomic
 
 
 DEFAULT_CARD_CACHE = Path.home() / "AppData/LocalLow/Unity/pokemon_Pokemon TCG Live"
@@ -22,6 +24,8 @@ def metadata_is_stale(card_data_path: Path, game_cache: Path, translation_root: 
     generated_at = card_data_path.stat().st_mtime_ns
     sources = list(game_cache.glob("card-database-*_en_*.json"))
     sources.extend(translation_root.glob("*.json"))
+    sources.extend((LOCAL_CHINESE_PATH, Path(__file__).with_name("card_data.py"),
+                    Path(__file__).with_name("local_chinese.py")))
     return any(path.stat().st_mtime_ns > generated_at for path in sources)
 
 
@@ -52,10 +56,7 @@ def refresh_once(
 
 
 def write_status(path: Path, status: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(path)
+    write_json_atomic(path, status)
 
 
 def main() -> None:

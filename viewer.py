@@ -8,6 +8,7 @@ import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from atomic_json import read_json_retry
 from urllib.parse import urlsplit
 
 from card_translation import TranslationCache
@@ -23,7 +24,7 @@ MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
 
 def state_payload(output_dir: Path, card_data_path: Path) -> dict:
     latest = json.loads((output_dir / "latest.json").read_text(encoding="utf-8"))
-    cards = json.loads(card_data_path.read_text(encoding="utf-8"))["cards"]
+    cards = read_json_retry(card_data_path)["cards"]
     ids = {slot.get("card_id") for slot in latest["slots"] if slot.get("card_id")}
     return {**latest, "cards": {card_id: cards[card_id] for card_id in ids if card_id in cards}}
 
@@ -85,7 +86,7 @@ def card_art_bytes(card_id: str, cache_root: Path, large_dir: Path,
     image = cv2.imdecode(np.frombuffer(body, dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is None:
         raise OSError(f"无法读取卡图：{card_id}")
-    cards = json.loads(card_data_path.read_text(encoding="utf-8"))["cards"]
+    cards = read_json_retry(card_data_path)["cards"]
     card = cards.get(card_id, {})
     height, width = image.shape[:2]
     first_row, last_row = (.07, .48) if card.get("hp") else (.115, .52)
@@ -132,7 +133,7 @@ def make_handler(output_dir: Path, visual_dir: Path, card_data_path: Path,
                 index = request.get("index")
                 if not isinstance(card_id, str) or not CARD_ID.fullmatch(card_id):
                     raise ValueError("卡牌编号无效")
-                cards = json.loads(card_data_path.read_text(encoding="utf-8"))["cards"]
+                cards = read_json_retry(card_data_path)["cards"]
                 card = cards.get(card_id)
                 if card is None:
                     self.send_json({"error": "本地资料中没有这张卡"}, 404)

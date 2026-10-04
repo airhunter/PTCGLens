@@ -63,6 +63,26 @@ class ImageMatchingTest(unittest.TestCase):
         self.assertTrue(same_art(image,image.copy()))
         self.assertFalse(same_art(image,rng.integers(0,256,(448,320,3),dtype=np.uint8)))
 
+    def test_damage_operators_and_energy_symbols_are_not_discarded(self):
+        game = {"name_en":"Test", "number":"1", "hp":80, "attacks":[{"kind":"attack", "name_en":"Attack",
+                "damage":"30+", "cost":"F", "text_en":'Attach <sprite name="fire" tint=1> Energy.'}]}
+        remote = {"name":"Test", "localId":"1", "hp":80, "attacks":[{"name":"Attack", "damage":"30",
+                  "cost":["Fighting"], "effect":'Attach <sprite name="fire" tint=1> Energy.'}]}
+        self.assertFalse(english_rules_match(game, remote))
+        remote["attacks"][0]["damage"] = "30+"
+        self.assertTrue(english_rules_match(game, remote))
+        remote["attacks"][0]["effect"] = 'Attach <sprite name="water" tint=1> Energy.'
+        self.assertFalse(english_rules_match(game, remote))
+
+    def test_local_trainer_translation_keeps_verified_chinese_image_bridge(self):
+        game = {"name_en":"Test", "name_zh":"测试", "hp":0, "attacks":[], "card_text_en":"Draw 2 cards",
+                "card_text_zh":"抽取2张卡", "card_text_zh_source":"local"}
+        chinese = {"name":"测试", "cardType":"2", "details":{"ruleText":"抽2张牌|通用规则"}}
+        bridges = {"Test":{"english":[digest("Draw 2 cards")], "chinese":[digest("抽2张牌")]}}
+        self.assertTrue(chinese_rules_match(game, chinese, bridges))
+        game["card_text_en"] = "Draw 3 cards"
+        self.assertFalse(chinese_rules_match(game, chinese, bridges))
+
 
 class ImageSourceCacheTest(unittest.TestCase):
     def setUp(self):

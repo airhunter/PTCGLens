@@ -8,6 +8,7 @@ import re
 import time
 from functools import lru_cache
 from pathlib import Path
+from atomic_json import read_json_retry, write_json_atomic
 
 import cv2
 import numpy as np
@@ -96,7 +97,7 @@ def update_index(cache_root: Path, index_dir: Path) -> dict:
         raise ValueError(f"Cache root does not exist: {cache_root}")
     index_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = index_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {"cards": []}
+    manifest = read_json_retry(manifest_path) if manifest_path.is_file() else {"cards": []}
     records = {record["card_id"]: record for record in manifest["cards"]}
     added = 0
     updated = 0
@@ -150,10 +151,10 @@ def update_index(cache_root: Path, index_dir: Path) -> dict:
             failures.append({"card_id": card_id, "reason": str(exc)})
             temporary.unlink(missing_ok=True)
     document = {"cards": sorted(records.values(), key=lambda item: item["card_id"]), "failures": failures}
-    temporary_manifest = index_dir / "manifest.json.tmp"
-    temporary_manifest.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary_manifest.replace(manifest_path)
-    load_index.cache_clear()
+    if document != manifest:
+        write_json_atomic(manifest_path, document)
+    if added or updated:
+        load_index.cache_clear()
     return {"cards": len(records), "added": added, "updated": updated, "pending": pending, "failures": failures}
 
 
@@ -201,7 +202,7 @@ def candidate_result(
 
 @lru_cache(maxsize=2)
 def load_index(index_dir: Path) -> list[dict]:
-    manifest = json.loads((index_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest = read_json_retry(index_dir / "manifest.json")
     records = []
     for record in manifest["cards"]:
         with np.load(index_dir / record["file"]) as data:

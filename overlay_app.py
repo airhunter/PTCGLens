@@ -13,19 +13,24 @@ from pathlib import Path
 
 from PySide6.QtCore import QLockFile, QObject, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPixmap
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
+from PySide6.QtWidgets import (QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                               QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
                               QSystemTrayIcon, QVBoxLayout, QWidget)
 
 from battle_live import is_battle_screen, load_resources
 from battle_multi import adaptive_layout, recognise_slot, scaled_box
-from cache_watch import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE, refresh_once
+from cache_watch import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE, metadata_is_stale, refresh_once
+from card_data import build_card_data
 from card_translation import TranslationCache, readable_text
 from card_images import CardImageSources
+from grid_cards import GridCardFinder
 from live_capture import client_bbox, game_window, set_dpi_awareness, user32
 from overlay_input import MouseTrigger
 from overlay_geometry import placement_geometry
 from overlay_model import frame_point, popup_position, relative_rect, restore_rect, shortcut_keys
+from latest_jobs import LatestJobQueue
+from query_diagnostics import QueryFailureRecorder
+from atomic_json import read_json_retry
 from window_capture import WindowCaptureSession, crop_client_frame
 
 
@@ -54,15 +59,17 @@ class Recognizer(threading.Thread):
     def __init__(self, events, args):
         super().__init__(daemon=True, name="PTCGLens recognition")
         self.events, self.args = events, args
-        self.jobs = queue.Queue()
+        self.jobs = LatestJobQueue()
         self.stop_event = threading.Event()
         self.session = None
         self.ready = False
         self.latest_request = 0
         self.translator = TranslationCache(ROOT / "output/translation-cache.json")
-        self.art_jobs = queue.Queue()
+        self.art_jobs = LatestJobQueue()
         self.translation_jobs = queue.Queue()
         self.last_art = None
+        self.query_card = None
+        self.diagnostics = QueryFailureRecorder(ROOT / "output/query-failures")
         self.image_sources = CardImageSources(ROOT / "output/card-sources",args.cache_root,
                                               ROOT / "output/card-thumbnails",ROOT / "output/card-large")
 
@@ -82,15 +89,20 @@ class Recognizer(threading.Thread):
                 _, number, source = job
                 try:
                     text, _ = self.translator.translate(source)
-                    self.events.translated.emit(request_id, number, text)
+                    if request_id == self.latest_request and not self.stop_event.is_set():
+                        self.events.translated.emit(request_id, number, text)
                 except Exception as exc:
-                    self.events.translated.emit(request_id, number, f"翻译暂不可用：{exc}")
+                    if request_id == self.latest_request and not self.stop_event.is_set():
+                        self.events.translated.emit(request_id, number, f"翻译暂不可用：{exc}")
             else:
                 _, card_id = job
                 try:
-                    card = self.resources[1][card_id]
+                    snapshot = self.query_card
+                    card = (snapshot[1] if snapshot and snapshot[0] == request_id
+                            and snapshot[1]["card_id"] == card_id else self.resources[1][card_id])
                     art = self.image_sources.resolve(card,lambda:self.latest_request != request_id or self.stop_event.is_set())
-                    if self.last_art != (request_id,art):
+                    if (request_id == self.latest_request and not self.stop_event.is_set()
+                            and self.last_art != (request_id,art)):
                         self.last_art = (request_id,art)
                         self.events.art.emit(request_id, art)
                         print(f"卡图已更新：{card_id}，{art['language']}，{art['provider']}",flush=True)
@@ -104,21 +116,41 @@ class Recognizer(threading.Thread):
                     ROOT / "output/card-thumbnails", self.args.game_cache,
                     self.args.translation_root, ROOT / "output/card-data.json")
                 if any(refreshed[key] for key in ("added", "updated", "visual_rebuilt", "card_data_refreshed")):
-                    resources = load_resources(ROOT / "output/index", ROOT / "output/card-thumbnails",
-                                               ROOT / "output/card-data.json")
-                    self.resources = resources
+                    self.reload_resources(refreshed)
                     self.events.status.emit("本地卡牌索引已更新")
             except Exception as exc:
                 self.events.status.emit(f"缓存更新暂未完成：{exc}")
+
+    def reload_resources(self, refreshed):
+        previous = self.resources
+        if any(refreshed[key] for key in ("added", "updated", "visual_rebuilt")):
+            replacement = load_resources(ROOT / "output/index", ROOT / "output/card-thumbnails",
+                                         ROOT / "output/card-data.json")
+        else:
+            cards = read_json_retry(ROOT / "output/card-data.json")["cards"]
+            replacement = (previous[0], cards, previous[2], previous[3])
+        self.resources = replacement
 
     def query(self, request_id, request):
         self.latest_request = request_id
         self.jobs.put((request_id, request))
 
+    def prepare_metadata(self):
+        path = ROOT / "output/card-data.json"
+        if metadata_is_stale(path, self.args.game_cache, self.args.translation_root):
+            self.events.status.emit("正在更新本地中文资料……")
+            try:
+                build_card_data(ROOT / "output/index", self.args.game_cache, self.args.translation_root, path)
+            except Exception as exc:
+                if not path.is_file():
+                    raise
+                self.events.status.emit(f"资料更新暂未完成，继续使用上次完整资料：{exc}")
+
     def run(self):
         set_dpi_awareness()
         try:
             self.events.status.emit("正在加载本地卡牌索引……")
+            self.prepare_metadata()
             self.resources = load_resources(ROOT / "output/index", ROOT / "output/card-thumbnails",
                                             ROOT / "output/card-data.json")
             self.layout = json.loads((ROOT / "battle_layout.sample.json").read_text(encoding="utf-8"))
@@ -144,30 +176,38 @@ class Recognizer(threading.Thread):
                 try:
                     screenshot = request["screenshot"]
                     point, bbox, started = request["point"], request["bbox"], request["started"]
+                    if request.get("capture_error"):
+                        raise RuntimeError(request["capture_error"])
                     if screenshot is None:
                         raise RuntimeError("暂未收到游戏画面，请保持窗口展开并稍后重试")
                     local = frame_point(point, bbox, screenshot.shape[:2])
                     if local is None:
                         raise RuntimeError("鼠标不在游戏画面中")
+                    # 一次查询使用同一份索引及卡牌资料；后台更新在下次查询生效。
+                    self.query_resources = self.resources
                     result = self.recognize(screenshot, local)
-                    _, cards, _, _ = self.resources
+                    if request_id != self.latest_request or self.stop_event.is_set():
+                        continue
+                    _, cards, _, _ = self.query_resources
                     card = cards.get(result.get("card_id")) if result.get("status") == "matched" else None
+                    self.query_card = (request_id, card) if card else None
                     elapsed = round((time.perf_counter()-started)*1000)
                     self.events.answer.emit({"id": request_id, "card": card, "result": result,
                                              "bbox": bbox, "shape": screenshot.shape[:2], "elapsed": elapsed})
                     print(f"查询 {request_id}：{result.get('status')} {result.get('card_id', '')}，{elapsed} ms", flush=True)
-                    if self.args.diagnose_input:
-                        import cv2
-                        diagnostic = ROOT / "output/overlay-diagnostics"
-                        diagnostic.mkdir(parents=True, exist_ok=True)
-                        cv2.imwrite(str(diagnostic / f"query-{request_id}.png"), screenshot)
-                        (diagnostic / f"query-{request_id}.json").write_text(json.dumps(
-                            {"point": local, "bbox": bbox, "shape": screenshot.shape[:2], "result": result},
-                            ensure_ascii=False, indent=2), encoding="utf-8")
+                    if self.args.diagnose_input or result.get("status") != "matched":
+                        try:
+                            self.diagnostics.save(screenshot, {"request_id": request_id,
+                                "point": local, "bbox": bbox, "shape": screenshot.shape[:2], "result": result})
+                        except Exception as exc:
+                            print(f"查询诊断保存失败：{exc}", flush=True)
                     if card and request_id == self.latest_request:
                         self.art_jobs.put((request_id, card["card_id"]))
                 except Exception as exc:
-                    self.events.answer.emit({"id": request_id, "error": str(exc)})
+                    if request_id == self.latest_request and not self.stop_event.is_set():
+                        self.events.answer.emit({"id": request_id, "error": str(exc)})
+                finally:
+                    self.query_resources = None
         except Exception as exc:
             self.events.status.emit(f"识别启动失败：{exc}")
         finally:
@@ -188,9 +228,19 @@ class Recognizer(threading.Thread):
             self.session = WindowCaptureSession(hwnd, .1)
 
     def recognize(self, screenshot, point):
-        visuals, cards, index, finder = self.resources
+        resources = getattr(self, "query_resources", None) or self.resources
+        visuals, cards, index, finder = resources
+        if getattr(self,"grid_visuals",None) is not visuals:
+            self.grid_finder=GridCardFinder(visuals,cards)
+            self.grid_visuals=visuals
+        else:
+            self.grid_finder.cards=cards
+        grid=self.grid_finder.find_at(screenshot,point)
+        if grid:
+            return grid
         # SIFT 优先确认鼠标下的具体卡图，适用于出战、备战、手牌、牌库及特写。
         result = finder.find_at(screenshot, cards, point)
+        result = self.grid_finder.check_energy_result(screenshot, result)
         if result:
             return result
         if is_battle_screen(screenshot):
@@ -202,16 +252,27 @@ class Recognizer(threading.Thread):
                 left, top, right, bottom = scaled_box(slot["box"], layout["reference_size"], screenshot.shape[:2])
                 if left <= x < right and top <= y < bottom:
                     fallback = recognise_slot(screenshot, slot, layout["reference_size"], visuals, cards, index)
+                    if fallback["status"] in ("unknown","tentative"):
+                        # 手牌下沿可能在画面外；按卡宽恢复完整参考图尺寸后逐卡复核。
+                        full_box=[left,top,right,max(bottom,top+round((right-left)*1.4))]
+                        verified=self.grid_finder.verify_box(screenshot,point,full_box)
+                        if verified:
+                            return verified
                     if fallback["status"] == "matched":
                         printings = fallback.get("possible_printings", [])
-                        rules = {json.dumps({key: cards.get(card_id, {}).get(key) for key in
-                                             ("hp", "attacks", "card_text_en")}, sort_keys=True)
-                                 for card_id in printings}
+                        rules = {finder.rules_signature(cards.get(card_id,{})) for card_id in printings}
                         if len(rules) > 1:
                             fallback["status"] = "tentative"
                             fallback.pop("card_id", None)
+                    if fallback["status"] == "unknown":
+                        partial = self.grid_finder.find_partial(screenshot, point)
+                        if partial:
+                            return partial
                     return fallback
-        return result or {"status": "unknown", "box": [point[0]-10, point[1]-10, point[0]+10, point[1]+10]}
+        partial = self.grid_finder.find_partial(screenshot, point)
+        if partial:
+            return partial
+        return grid or result or {"status": "unknown", "box": [point[0]-10, point[1]-10, point[0]+10, point[1]+10]}
 
 
 class ReadingCard(QWidget):
@@ -235,12 +296,14 @@ class ReadingCard(QWidget):
         self.image_language = None
         self.printing_label = None
         self.original_printing = ""
+        self.compact_media = False
         self.text_labels = {}
         self.buttons = {}
         self.sources = {}
         self.outer = QVBoxLayout(self)
-        self.outer.setContentsMargins(10, 10, 10, 10)
-        self.outer.setSpacing(6)
+        self.setObjectName("readingCard")
+        self.outer.setContentsMargins(10, 8, 10, 8)
+        self.outer.setSpacing(4)
         self.header = QWidget()
         header_layout = QHBoxLayout(self.header)
         header_layout.setContentsMargins(0, 0, 0, 0)
@@ -249,7 +312,8 @@ class ReadingCard(QWidget):
         header_layout.addWidget(self.source_badge)
         header_layout.addStretch()
         self.close_button = QPushButton("×")
-        self.close_button.setFixedWidth(30)
+        self.close_button.setObjectName("closeCard")
+        self.close_button.setFixedSize(24,24)
         self.close_button.clicked.connect(self.dismissed.emit)
         header_layout.addWidget(self.close_button)
         self.outer.addWidget(self.header)
@@ -268,9 +332,12 @@ class ReadingCard(QWidget):
             self.body.deleteLater()
         self.body = QWidget()
         self.body_layout = QVBoxLayout(self.body)
-        self.body_layout.setContentsMargins(3, 3, 3, 3)
-        self.body_layout.setSpacing(6)
+        self.body_layout.setContentsMargins(0, 0, 0, 0)
+        self.body_layout.setSpacing(4)
         self.outer.addWidget(self.body)
+        self.media = None
+        self.rules = None
+        self.rules_layout = None
         self.text_labels, self.buttons = {}, {}
         self.sources = {}
         self.source_badge.setText("")
@@ -278,13 +345,14 @@ class ReadingCard(QWidget):
         self.labels, self.body_widgets = [], []
         self.building = True
 
-    def label(self, text, bold=False):
+    def label(self, text, bold=False, role=None):
         label = QLabel(text)
+        label.setProperty("role", role or ("section" if bold else "effect"))
         label.setTextFormat(Qt.TextFormat.PlainText)
         label.setWordWrap(True)
         self.labels.append((label, bold))
         self.body_widgets.append(label)
-        self.body_layout.addWidget(label)
+        (self.rules_layout or self.body_layout).addWidget(label)
         return label
 
     def finish_content(self):
@@ -295,43 +363,82 @@ class ReadingCard(QWidget):
 
     def measure(self, width, image_height, font_size):
         self.setFixedWidth(width)
-        self.setStyleSheet(f"QWidget {{background:#18232e;color:#edf4fa;font-size:{font_size}px;}}"
-                          "QLabel#sourceBadge {color:#9cccb7;font-size:12px;}"
-                          "QPushButton {background:#2b4657;border:0;border-radius:5px;padding:6px;}"
-                          "QPushButton:hover {background:#3a6274;}")
-        content_width = width-26
-        for label, bold in self.labels:
-            label.setMinimumHeight(0)
-            label.setMaximumHeight(16777215)
-            label.setStyleSheet(f"font-size:{font_size+3}px;font-weight:600;color:#f7d991;" if bold else "")
-            label.ensurePolished()
-            label.setFixedHeight(max(label.fontMetrics().height(), label.heightForWidth(content_width))+2)
+        self.setStyleSheet(f"QWidget {{background:transparent;color:#dce6ed;font-size:{font_size}px;}}"
+                          "QWidget#readingCard {background:#141f28;border:1px solid #344956;border-radius:10px;}"
+                          "QLabel#sourceBadge {color:#8fa8b4;font-size:10px;}"
+                          "QPushButton {background:#1e3540;color:#a6dace;border:1px solid #37525d;"
+                          "border-radius:5px;padding:3px 9px;font-size:11px;}"
+                          "QPushButton:hover {background:#2c4c57;border-color:#5b8b88;}"
+                          "QPushButton#closeCard {background:transparent;color:#95aab7;border:0;"
+                          "padding:0;font-size:19px;}"
+                          "QPushButton#closeCard:hover {background:#293d49;color:#ffffff;}")
+        content_width = width-20
+        image_width = 0
+        has_rules = bool(self.text_labels or any(bold for label,bold in self.labels
+                                                if label.parent() is self.rules))
+        side_by_side = bool(self.rules and has_rules and content_width>=300)
+        image_limit = min(140,content_width-160) if side_by_side else min(300,content_width)
         if self.image is not None:
             if self.art_pixmap is not None and not self.art_pixmap.isNull():
                 ratio = self.devicePixelRatioF()
-                # 在物理像素中只缩小，不把缩略图插值成大图；让 Qt 使用正确的屏幕比例。
                 scaled = self.art_pixmap.scaled(
-                    min(round(min(300,content_width)*ratio),self.art_pixmap.width()),
+                    min(round(image_limit*ratio),self.art_pixmap.width()),
                     min(round(image_height*ratio),self.art_pixmap.height()),
                     Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
                 scaled.setDevicePixelRatio(ratio)
                 self.image.setPixmap(scaled)
-                self.image.setFixedHeight(math.ceil(scaled.height()/ratio))
+                image_width = math.ceil(scaled.width()/ratio)
+                self.image.setFixedSize(image_width,math.ceil(scaled.height()/ratio))
             else:
-                self.image.setFixedHeight(0)
-        for button in [self.close_button, *self.buttons.values()]:
+                self.image.setFixedSize(0,0)
+        # 排版由文字和可用宽度决定，不能因后台图源升级而切回纵向大图。
+        self.compact_media = bool(image_width and side_by_side)
+        rules_width = content_width-image_width-10 if self.compact_media else content_width
+        for label, bold in self.labels:
+            label.setMinimumHeight(0)
+            label.setMaximumHeight(16777215)
+            role = label.property("role")
+            styles = {
+                "title": f"font-size:{font_size+5}px;font-weight:700;color:#f0f5f8;",
+                "subtitle": f"font-size:{max(11,font_size-2)}px;color:#90a6b5;",
+                "section": f"font-size:{font_size}px;font-weight:600;color:#a9dece;",
+                "footer": "font-size:10px;color:#78919f;",
+            }
+            label.setStyleSheet(styles.get(role, ""))
+            label_width = rules_width if self.rules and label.parent() is self.rules else content_width
+            label.setFixedWidth(label_width)
+            label.ensurePolished()
+            label.setFixedHeight(max(label.fontMetrics().height(), label.heightForWidth(label_width))+2)
+        for button in self.buttons.values():
             button.setMinimumHeight(0)
             button.setMaximumHeight(16777215)
             button.ensurePolished()
             button.setFixedHeight(button.sizeHint().height())
+            button.setFixedWidth(min(rules_width,button.sizeHint().width()))
         visible = [widget for widget in self.body_widgets if not widget.isHidden()]
-        body_height = 6+sum(widget.height() for widget in visible)+max(0,len(visible)-1)*6
+        if self.media is not None:
+            rule_widgets = [widget for widget in visible if widget.parent() is self.rules]
+            rules_height = sum(widget.height() for widget in rule_widgets)+max(0,len(rule_widgets)-1)*5
+            self.rules.setFixedSize(rules_width,rules_height)
+            self.media_layout.setDirection(QBoxLayout.Direction.LeftToRight if self.compact_media
+                                           else QBoxLayout.Direction.TopToBottom)
+            self.media_layout.setSpacing(10 if self.compact_media else 6)
+            media_height = max(self.image.height(),rules_height) if self.compact_media else (
+                self.image.height()+rules_height+(6 if self.image.height() and rules_height else 0))
+            self.media.setFixedHeight(media_height)
+            top_widgets = [widget for widget in visible if widget.parent() is self.body]
+            body_height = sum(widget.height() for widget in top_widgets)+media_height+len(top_widgets)*4
+        else:
+            body_height = sum(widget.height() for widget in visible)+max(0,len(visible)-1)*4
         self.body.setFixedHeight(body_height)
         self.header.setFixedHeight(self.close_button.height())
-        self.setFixedHeight(20+self.header.height()+6+body_height)
+        self.setFixedHeight(16+self.header.height()+4+body_height)
         self.outer.invalidate()
         self.outer.activate()
         self.body_layout.activate()
+        if self.media is not None:
+            self.media_layout.activate()
+            self.rules_layout.activate()
         return self.height()
 
     def fit_to_area(self, max_width, max_height):
@@ -371,35 +478,48 @@ class ReadingCard(QWidget):
             self.finish_content()
             return
         self.card_id = card["card_id"]
-        self.label(card.get("name_zh") or card["name_en"], True)
-        self.sources["name"] = "中" if card.get("name_zh") else "EN"
-        self.label(f"{card['name_en']}   " + (f"HP {card['hp']}" if card.get("hp") else ""))
+        self.label(card.get("name_zh") or card["name_en"], True, "title")
+        self.sources["name"] = self.chinese_mark(card.get("name_zh"), card.get("name_zh_source"))
+        self.label(f"{card['name_en']}   " + (f"HP {card['hp']}" if card.get("hp") else ""), role="subtitle")
+        self.media = QWidget(self.body)
+        self.media_layout = QBoxLayout(QBoxLayout.Direction.TopToBottom,self.media)
+        self.media_layout.setContentsMargins(0,0,0,0)
+        self.body_layout.addWidget(self.media)
         self.image = QLabel()
         self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.body_layout.addWidget(self.image)
+        self.media_layout.addWidget(self.image,0,Qt.AlignmentFlag.AlignTop|Qt.AlignmentFlag.AlignHCenter)
         self.body_widgets.append(self.image)
+        self.rules = QWidget(self.media)
+        self.rules_layout = QVBoxLayout(self.rules)
+        self.rules_layout.setContentsMargins(0,0,0,0)
+        self.rules_layout.setSpacing(5)
+        self.media_layout.addWidget(self.rules,0,Qt.AlignmentFlag.AlignTop)
         thumbnail = QPixmap(str(ROOT / "output/card-thumbnails" / f"{card['card_id']}.png"))
         if not thumbnail.isNull():
             self.set_art_pixmap(thumbnail)
-        self.add_text(0, card.get("card_text_zh"), card.get("card_text_en"))
+        self.add_text(0, card.get("card_text_zh"), card.get("card_text_en"), card.get("card_text_zh_source"))
         for number, attack in enumerate(card.get("attacks", []), 1):
-            self.sources[f"attack-{number}"] = "中" if attack.get("name_zh") else "EN"
+            self.sources[f"attack-{number}"] = self.chinese_mark(attack.get("name_zh"), attack.get("name_zh_source"))
             kind = "特性" if attack.get("kind") == "ability" else "招式"
             self.label(f"{kind} · {attack.get('name_zh') or attack['name_en']}   {attack.get('damage') or ''}", True)
-            self.add_text(number, attack.get("text_zh"), attack.get("text_en"))
+            self.add_text(number, attack.get("text_zh"), attack.get("text_en"), attack.get("text_zh_source"))
         self.original_printing = f"{card['set_code']} · {card['number']}"
-        self.printing_label = self.label(self.original_printing)
+        self.printing_label = self.label(self.original_printing,role="footer")
         self.update_badge()
         self.finish_content()
 
-    def add_text(self, number, chinese, english):
+    @staticmethod
+    def chinese_mark(chinese, source):
+        return ("译" if source == "local" else "中") if chinese else "EN"
+
+    def add_text(self, number, chinese, english, source=None):
         if chinese or english:
             self.text_labels[number] = self.label(readable_text(chinese or english))
-            self.sources[number] = "中" if chinese else "EN"
+            self.sources[number] = self.chinese_mark(chinese, source)
         if english and not chinese:
             button = QPushButton("翻译")
             button.clicked.connect(lambda _=False, n=number, source=english: self.request_translation(n, source))
-            self.body_layout.addWidget(button)
+            self.rules_layout.addWidget(button,0,Qt.AlignmentFlag.AlignRight)
             self.body_widgets.append(button)
             self.buttons[number] = button
 
@@ -422,7 +542,7 @@ class ReadingCard(QWidget):
         self.translate(self.request_id, number, source)
 
     def translated(self, request_id, number, text):
-        if request_id == self.request_id and number in self.text_labels and self.sources.get(number) != "中":
+        if request_id == self.request_id and number in self.buttons and self.sources.get(number) != "中":
             if text.startswith("翻译暂不可用"):
                 self.buttons[number].setText("重试")
                 self.buttons[number].setToolTip(text)
@@ -567,11 +687,20 @@ class Overlay(QObject):
         """钩子线程只取不可变帧引用和坐标，匹配及 UI 交给各自线程。"""
         started = time.perf_counter()
         hwnd = self.hook.hwnd
-        bbox = client_bbox(hwnd)
-        session = self.worker.session
-        latest = session.newest(0) if session and session.hwnd == hwnd and not session.closed else None
-        screenshot = crop_client_frame(latest[1], hwnd) if latest else None
-        self.events.clicked.emit({"point": (x, y), "bbox": bbox, "screenshot": screenshot, "started": started})
+        bbox, screenshot, error = self.hook.bbox, None, None
+        try:
+            bbox = client_bbox(hwnd)
+            session = self.worker.session
+            latest = session.newest(0) if session and session.hwnd == hwnd and not session.closed else None
+            screenshot = crop_client_frame(latest[1], hwnd, bbox=bbox, strict=True) if latest else None
+            if client_bbox(hwnd) != bbox:
+                screenshot = None
+                error = "窗口位置或尺寸已改变，请稍后再查询"
+        except (RuntimeError, OSError) as exc:
+            error = str(exc)
+        if bbox is not None:
+            self.events.clicked.emit({"point": (x, y), "bbox": bbox, "screenshot": screenshot,
+                                      "started": started, "capture_error": error})
 
     @Slot(object)
     def query(self, request):

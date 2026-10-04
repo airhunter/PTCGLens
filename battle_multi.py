@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from atomic_json import read_json_retry
 
 import cv2
 import numpy as np
@@ -20,7 +21,7 @@ THUMB_SIZE = (160, 224)
 
 def build_visual_index(index_dir: Path, cache_root: Path, visual_dir: Path) -> dict:
     """为特征索引中已有的卡牌提取缩略图。"""
-    manifest = json.loads((index_dir / "manifest.json").read_text(encoding="utf-8"))
+    manifest = read_json_retry(index_dir / "manifest.json")
     directories = dict(cache_cards(cache_root))
     visual_dir.mkdir(parents=True, exist_ok=True)
     built = []
@@ -73,7 +74,9 @@ def detect_hand_slots(screenshot: np.ndarray, reference_size: list[int]) -> list
         return []
     hsv = cv2.cvtColor(band, cv2.COLOR_BGR2HSV)
     pale = ((hsv[:, :, 1] < 65) & (hsv[:, :, 2] > 130)).astype(np.float32)
-    projection = np.convolve(pale.mean(axis=0), np.ones(9) / 9, mode="same")
+    # 平滑宽度随画面缩放；固定 9 像素会在 720p 抹掉相邻手牌之间的窄间隙。
+    kernel=max(1,round(width*9/1910))
+    projection = np.convolve(pale.mean(axis=0), np.ones(kernel) / kernel, mode="same")
     active = projection > .15
     changes = np.diff(np.r_[False, active, False].astype(np.int8))
     runs = [[int(start + left), int(end + left)] for start, end in
@@ -146,7 +149,8 @@ def visual_score(observed: np.ndarray, reference: np.ndarray, visible_rows: list
     return float(cv2.matchTemplate(observed_small, reference_small, cv2.TM_CCOEFF_NORMED)[0, 0])
 
 
-def sift_tiebreak(observed: np.ndarray, candidates: list[dict], index: dict[str, dict]) -> tuple[str | None, int]:
+def sift_tiebreak(observed: np.ndarray, candidates: list[dict], index: dict[str, dict],
+                  cards: dict | None = None) -> tuple[str | None, int]:
     enlarged = cv2.resize(observed, None, fx=3, fy=3, interpolation=cv2.INTER_CUBIC)
     points, descriptors = cv2.SIFT_create(nfeatures=3000).detectAndCompute(
         cv2.cvtColor(enlarged, cv2.COLOR_BGR2GRAY), None
@@ -164,7 +168,14 @@ def sift_tiebreak(observed: np.ndarray, candidates: list[dict], index: dict[str,
         )
         if match.get("fully_visible") and .4 <= match["area_ratio"] <= 1.4:
             scores.append((candidate["card_id"], match["inliers"]))
-    scores.sort(key=lambda item: item[1], reverse=True)
+    # 共用插画和规则的重印卡不是互斥候选，按相同卡名及规则合并后再比较证据。
+    grouped = {}
+    for card_id,count in scores:
+        card = (cards or {}).get(card_id)
+        key = (card.get("name_en"),LargeCardFinder.rules_signature(card)) if card else card_id
+        if key not in grouped or count > grouped[key][1]:
+            grouped[key] = (card_id,count)
+    scores = sorted(grouped.values(),key=lambda item:item[1],reverse=True)
     if scores and scores[0][1] >= 15 and (len(scores) == 1 or scores[0][1] >= 1.5 * max(scores[1][1], 1)):
         return scores[0]
     return None, scores[0][1] if scores else 0
@@ -211,7 +222,7 @@ def recognise_slot(
     margin = winner["score"] - (names[1]["score"] if len(names) > 1 else -1.0)
     sift_inliers = 0
     if margin < .08 and visible_rows == [0.0, 1.0]:
-        tiebreak_id, sift_inliers = sift_tiebreak(observed, ranked[:8], index)
+        tiebreak_id, sift_inliers = sift_tiebreak(observed, ranked[:8], index, cards)
         if tiebreak_id is not None:
             winner = next(item for item in ranked if item["card_id"] == tiebreak_id)
             margin = max(margin, .08)

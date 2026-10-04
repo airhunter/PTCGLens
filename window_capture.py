@@ -36,9 +36,9 @@ def window_bounds(hwnd: int) -> list[tuple[int, int, int, int]]:
     return candidates
 
 
-def crop_client_frame(frame: np.ndarray, hwnd: int) -> np.ndarray:
+def crop_client_frame(frame: np.ndarray, hwnd: int, *, bbox=None, strict=False) -> np.ndarray:
     """窗口采集通常含边框；根据客户区坐标裁去标题栏与边框。"""
-    left, top, right, bottom = client_bbox(hwnd)
+    left, top, right, bottom = bbox if bbox is not None else client_bbox(hwnd)
     height, width = frame.shape[:2]
     client_width, client_height = right - left, bottom - top
     if abs(width - client_width) <= 2 and abs(height - client_height) <= 2:
@@ -52,6 +52,8 @@ def crop_client_frame(frame: np.ndarray, hwnd: int) -> np.ndarray:
     frame_width, frame_height = frame_right - frame_left, frame_bottom - frame_top
     if frame_width <= 0 or frame_height <= 0:
         raise RuntimeError("游戏窗口边界无效")
+    if strict and (abs(frame_width-width) > 2 or abs(frame_height-height) > 2):
+        raise RuntimeError("窗口尺寸已改变，请稍后再查询")
     x0 = max(0, round((left - frame_left) * width / frame_width))
     y0 = max(0, round((top - frame_top) * height / frame_height))
     x1 = min(width, round((right - frame_left) * width / frame_width))
@@ -96,7 +98,7 @@ class WindowCaptureSession:
 
     def newest(self, after_sequence: int) -> tuple[int, np.ndarray] | None:
         with self._lock:
-            if self._sequence <= after_sequence or self._frame is None:
+            if self.closed or self._sequence <= after_sequence or self._frame is None:
                 return None
             return self._sequence, self._frame
 

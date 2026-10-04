@@ -17,6 +17,7 @@ from cache_watch import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE, refresh_once
 from global_cards import LargeCardFinder
 from live_capture import client_bbox, game_window, set_dpi_awareness, user32
 from window_capture import WindowCaptureSession, crop_client_frame
+from atomic_json import read_json_retry
 
 
 def load_resources(index_dir: Path, visual_dir: Path, card_data_path: Path) -> tuple[list, dict, dict, LargeCardFinder]:
@@ -25,7 +26,7 @@ def load_resources(index_dir: Path, visual_dir: Path, card_data_path: Path) -> t
     visuals = [(path.stem, read_image(path)) for path in sorted(visual_dir.glob("*.png")) if path.stem in index]
     if not visuals:
         raise ValueError("视觉索引为空，请先运行 python cache_watch.py --once")
-    cards = json.loads(card_data_path.read_text(encoding="utf-8"))["cards"]
+    cards = read_json_retry(card_data_path)["cards"]
     return visuals, cards, index, LargeCardFinder(records)
 
 

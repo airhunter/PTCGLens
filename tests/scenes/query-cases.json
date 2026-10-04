@@ -1,0 +1,834 @@
+{
+  "scenes": [
+    {
+      "id": "decks",
+      "image": "decks.png",
+      "points": [
+        {
+          "id": "lunatone",
+          "point": [
+            1400,
+            567
+          ],
+          "name_en": "Lunatone",
+          "rules_card_id": "me1_en_074"
+        },
+        {
+          "id": "makuhita",
+          "point": [
+            1530,
+            567
+          ],
+          "name_en": "Makuhita",
+          "rules_card_id": "me1_en_072"
+        },
+        {
+          "id": "hariyama",
+          "point": [
+            1664,
+            567
+          ],
+          "name_en": "Hariyama",
+          "rules_card_id": "me1_en_073"
+        },
+        {
+          "id": "okidogi",
+          "point": [
+            1795,
+            567
+          ],
+          "name_en": "Okidogi",
+          "rules_card_id": "me2-5_en_122"
+        },
+        {
+          "id": "riolu",
+          "point": [
+            1400,
+            741
+          ],
+          "name_en": "Riolu",
+          "rules_card_id": "me1_en_076"
+        },
+        {
+          "id": "lucario",
+          "point": [
+            1530,
+            741
+          ],
+          "name_en": "Mega Lucario ex",
+          "rules_card_id": "me1_en_077"
+        },
+        {
+          "id": "solrock",
+          "point": [
+            1664,
+            741
+          ],
+          "name_en": "Solrock",
+          "rules_card_id": "me1_en_075"
+        },
+        {
+          "id": "fezandipiti",
+          "point": [
+            1795,
+            741
+          ],
+          "name_en": "Fezandipiti ex",
+          "rules_card_id": "me2-5_en_142"
+        },
+        {
+          "id": "meowth",
+          "point": [
+            1400,
+            918
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "gong",
+          "point": [
+            1530,
+            918
+          ],
+          "name_en": "Fighting Gong",
+          "rules_card_id": "me1_en_116"
+        },
+        {
+          "id": "night",
+          "point": [
+            1664,
+            918
+          ],
+          "name_en": "Night Stretcher",
+          "rules_card_id": "sv6-5_en_061"
+        },
+        {
+          "id": "pad",
+          "point": [
+            1795,
+            918
+          ],
+          "name_en": "Poké Pad",
+          "rules_card_id": "me3_en_081"
+        },
+        {
+          "id": "card-back",
+          "point": [
+            440,
+            280
+          ],
+          "name_en": null
+        },
+        {
+          "id": "button",
+          "point": [
+            1810,
+            440
+          ],
+          "name_en": null
+        }
+      ]
+    },
+    {
+      "id": "current",
+      "image": "current.png",
+      "points": [
+        {
+          "id": "budew",
+          "point": [
+            710,
+            125
+          ],
+          "name_en": "Budew",
+          "rules_card_id": "sv8-5_en_004"
+        },
+        {
+          "id": "bench-staryu",
+          "point": [
+            835,
+            125
+          ],
+          "name_en": "Staryu",
+          "rules_card_id": "me3_en_020"
+        },
+        {
+          "id": "active-staryu",
+          "point": [
+            960,
+            300
+          ],
+          "name_en": "Staryu",
+          "rules_card_id": "me3_en_020"
+        },
+        {
+          "id": "discard-boss",
+          "point": [
+            1475,
+            300
+          ],
+          "name_en": "Boss’s Orders",
+          "rules_card_id": "sv2_en_172"
+        },
+        {
+          "id": "active-lunatone",
+          "point": [
+            960,
+            565
+          ],
+          "name_en": "Lunatone",
+          "rules_card_id": "me1_en_074"
+        },
+        {
+          "id": "discard-lillie",
+          "point": [
+            1475,
+            650
+          ],
+          "name_en": "Lillie’s Determination",
+          "rules_card_id": "me2-5_en_192"
+        },
+        {
+          "id": "bench-riolu",
+          "point": [
+            706,
+            800
+          ],
+          "name_en": "Riolu",
+          "rules_card_id": "me1_en_076"
+        },
+        {
+          "id": "bench-makuhita",
+          "point": [
+            835,
+            805
+          ],
+          "name_en": "Makuhita",
+          "rules_card_id": "me1_en_072"
+        },
+        {
+          "id": "hand-boss",
+          "point": [
+            570,
+            1020
+          ],
+          "name_en": "Boss’s Orders",
+          "rules_card_id": "me1_en_114"
+        },
+        {
+          "id": "hand-lillie",
+          "point": [
+            765,
+            1020
+          ],
+          "name_en": "Lillie’s Determination",
+          "rules_card_id": "me2-5_en_192"
+        },
+        {
+          "id": "hand-night",
+          "point": [
+            965,
+            1030
+          ],
+          "name_en": "Night Stretcher",
+          "rules_card_id": "me2-5_en_196"
+        },
+        {
+          "id": "hand-ultra",
+          "point": [
+            1140,
+            1030
+          ],
+          "name_en": "Ultra Ball",
+          "rules_card_id": "me1_en_131"
+        },
+        {
+          "id": "hand-energy",
+          "point": [
+            1350,
+            1030
+          ],
+          "name_en": "Basic {F} Energy",
+          "rules_card_id": "mee_en_006"
+        },
+        {
+          "id": "background",
+          "point": [
+            1170,
+            590
+          ],
+          "name_en": null
+        },
+        {
+          "id": "card-back",
+          "point": [
+            1350,
+            300
+          ],
+          "name_en": null
+        }
+      ]
+    },
+    {
+      "id": "previous",
+      "image": "previous.png",
+      "points": [
+        {
+          "id": "riolu",
+          "point": [
+            960,
+            560
+          ],
+          "name_en": "Riolu",
+          "rules_card_id": "me1_en_076"
+        },
+        {
+          "id": "fezandipiti",
+          "point": [
+            960,
+            310
+          ],
+          "name_en": "Fezandipiti ex",
+          "rules_card_id": "me2-5_en_142"
+        },
+        {
+          "id": "makuhita",
+          "point": [
+            560,
+            1010
+          ],
+          "name_en": "Makuhita",
+          "rules_card_id": "me1_en_072"
+        },
+        {
+          "id": "meowth",
+          "point": [
+            750,
+            1010
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "lillie",
+          "point": [
+            960,
+            1020
+          ],
+          "name_en": "Lillie’s Determination",
+          "rules_card_id": "me2-5_en_192"
+        },
+        {
+          "id": "gong",
+          "point": [
+            1150,
+            1020
+          ],
+          "name_en": "Fighting Gong",
+          "rules_card_id": "me2-5_en_187"
+        },
+        {
+          "id": "energy",
+          "point": [
+            1350,
+            1020
+          ],
+          "name_en": "Basic {F} Energy",
+          "rules_card_id": "mee_en_006"
+        },
+        {
+          "id": "empty-bench",
+          "point": [
+            1100,
+            800
+          ],
+          "name_en": null
+        }
+      ]
+    },
+    {
+      "id": "closeup",
+      "image": "closeup.png",
+      "points": [
+        {
+          "id": "lunatone",
+          "point": [
+            960,
+            360
+          ],
+          "name_en": "Lunatone",
+          "rules_card_id": "me1_en_074"
+        },
+        {
+          "id": "background",
+          "point": [
+            300,
+            350
+          ],
+          "name_en": null
+        }
+      ]
+    },
+    {
+      "id": "belt",
+      "image": "belt.png",
+      "points": [
+        {
+          "id": "hand",
+          "point": [
+            390,
+            700
+          ],
+          "name_en": "Maximum Belt",
+          "rules_card_id": "sv8-5_en_117"
+        },
+        {
+          "id": "preview",
+          "point": [
+            390,
+            250
+          ],
+          "name_en": "Maximum Belt",
+          "rules_card_id": "sv8-5_en_117"
+        }
+      ]
+    },
+    {
+      "id": "card-dex",
+      "image": "card-dex.png",
+      "points": [
+        {
+          "id": "exeggcute",
+          "point": [
+            140,
+            530
+          ],
+          "name_en": "Exeggcute",
+          "rules_card_id": "me5-5_en_001"
+        },
+        {
+          "id": "alolan-exeggutor",
+          "point": [
+            413,
+            530
+          ],
+          "name_en": "Alolan Exeggutor",
+          "rules_card_id": "me5-5_en_002"
+        },
+        {
+          "id": "volbeat",
+          "point": [
+            686,
+            530
+          ],
+          "name_en": "Volbeat",
+          "rules_card_id": "me5-5_en_003"
+        },
+        {
+          "id": "illumise",
+          "point": [
+            960,
+            530
+          ],
+          "name_en": "Illumise",
+          "rules_card_id": "me5-5_en_004"
+        },
+        {
+          "id": "tropius",
+          "point": [
+            1234,
+            530
+          ],
+          "name_en": "Tropius",
+          "rules_card_id": "me5-5_en_005"
+        },
+        {
+          "id": "cherubi",
+          "point": [
+            1507,
+            530
+          ],
+          "name_en": "Cherubi",
+          "rules_card_id": "me5-5_en_006"
+        },
+        {
+          "id": "cherrim",
+          "point": [
+            1780,
+            530
+          ],
+          "name_en": "Cherrim",
+          "rules_card_id": "me5-5_en_007"
+        },
+        {
+          "id": "vivillon",
+          "point": [
+            140,
+            920
+          ],
+          "name_en": "Vivillon",
+          "rules_card_id": "me5-5_en_008"
+        },
+        {
+          "id": "vulpix",
+          "point": [
+            413,
+            920
+          ],
+          "name_en": "Vulpix",
+          "rules_card_id": "me5-5_en_009"
+        },
+        {
+          "id": "ninetales",
+          "point": [
+            686,
+            920
+          ],
+          "name_en": "Ninetales",
+          "rules_card_id": "me5-5_en_010"
+        },
+        {
+          "id": "moltres",
+          "point": [
+            960,
+            920
+          ],
+          "name_en": "Moltres",
+          "rules_card_id": "me5-5_en_011"
+        },
+        {
+          "id": "ho-oh",
+          "point": [
+            1234,
+            920
+          ],
+          "name_en": "Ho-Oh",
+          "rules_card_id": "me5-5_en_012"
+        },
+        {
+          "id": "victini",
+          "point": [
+            1507,
+            920
+          ],
+          "name_en": "Victini",
+          "rules_card_id": "me5-5_en_013"
+        },
+        {
+          "id": "reshiram",
+          "point": [
+            1780,
+            920
+          ],
+          "name_en": "Reshiram",
+          "rules_card_id": "me5-5_en_014"
+        },
+        {
+          "id": "set-selector",
+          "point": [
+            950,
+            250
+          ],
+          "name_en": null
+        },
+        {
+          "id": "gap",
+          "point": [
+            824,
+            540
+          ],
+          "name_en": null
+        }
+      ]
+    },
+    {
+      "id": "card-dex-720",
+      "image": "card-dex-720.png",
+      "scales": [
+        1.0
+      ],
+      "points": [
+        {
+          "id": "exeggcute",
+          "point": [
+            93,
+            353
+          ],
+          "name_en": "Exeggcute",
+          "rules_card_id": "me5-5_en_001"
+        },
+        {
+          "id": "alolan-exeggutor",
+          "point": [
+            275,
+            353
+          ],
+          "name_en": "Alolan Exeggutor",
+          "rules_card_id": "me5-5_en_002"
+        },
+        {
+          "id": "volbeat",
+          "point": [
+            457,
+            353
+          ],
+          "name_en": "Volbeat",
+          "rules_card_id": "me5-5_en_003"
+        },
+        {
+          "id": "illumise",
+          "point": [
+            640,
+            353
+          ],
+          "name_en": "Illumise",
+          "rules_card_id": "me5-5_en_004"
+        },
+        {
+          "id": "tropius",
+          "point": [
+            823,
+            353
+          ],
+          "name_en": "Tropius",
+          "rules_card_id": "me5-5_en_005"
+        },
+        {
+          "id": "cherubi",
+          "point": [
+            1005,
+            353
+          ],
+          "name_en": "Cherubi",
+          "rules_card_id": "me5-5_en_006"
+        },
+        {
+          "id": "cherrim",
+          "point": [
+            1187,
+            353
+          ],
+          "name_en": "Cherrim",
+          "rules_card_id": "me5-5_en_007"
+        },
+        {
+          "id": "vivillon",
+          "point": [
+            93,
+            613
+          ],
+          "name_en": "Vivillon",
+          "rules_card_id": "me5-5_en_008"
+        },
+        {
+          "id": "vulpix",
+          "point": [
+            275,
+            613
+          ],
+          "name_en": "Vulpix",
+          "rules_card_id": "me5-5_en_009"
+        },
+        {
+          "id": "ninetales",
+          "point": [
+            457,
+            613
+          ],
+          "name_en": "Ninetales",
+          "rules_card_id": "me5-5_en_010"
+        },
+        {
+          "id": "moltres",
+          "point": [
+            640,
+            613
+          ],
+          "name_en": "Moltres",
+          "rules_card_id": "me5-5_en_011"
+        },
+        {
+          "id": "ho-oh",
+          "point": [
+            823,
+            613
+          ],
+          "name_en": "Ho-Oh",
+          "rules_card_id": "me5-5_en_012"
+        },
+        {
+          "id": "victini",
+          "point": [
+            1005,
+            613
+          ],
+          "name_en": "Victini",
+          "rules_card_id": "me5-5_en_013"
+        },
+        {
+          "id": "reshiram",
+          "point": [
+            1187,
+            613
+          ],
+          "name_en": "Reshiram",
+          "rules_card_id": "me5-5_en_014"
+        },
+        {
+          "id": "set-selector",
+          "point": [
+            633,
+            167
+          ],
+          "name_en": null
+        },
+        {
+          "id": "gap",
+          "point": [
+            549,
+            360
+          ],
+          "name_en": null
+        }
+      ]
+    },
+    {
+      "id": "battle-720-stability",
+      "image": "battle-720-stability.png",
+      "scales": [
+        1.0
+      ],
+      "points": [
+        {
+          "id": "tynamo-left",
+          "point": [
+            471,
+            78
+          ],
+          "name_en": "Tynamo",
+          "rules_card_id": "zsv10-5_en_030"
+        },
+        {
+          "id": "tynamo-right",
+          "point": [
+            645,
+            78
+          ],
+          "name_en": "Tynamo",
+          "rules_card_id": "zsv10-5_en_030"
+        },
+        {
+          "id": "meowth",
+          "point": [
+            556,
+            78
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "electrike",
+          "point": [
+            640,
+            198
+          ],
+          "name_en": "Electrike",
+          "rules_card_id": "me1_en_049"
+        },
+        {
+          "id": "makuhita-active",
+          "point": [
+            640,
+            374
+          ],
+          "name_en": "Makuhita",
+          "rules_card_id": "me1_en_072"
+        },
+        {
+          "id": "makuhita-bench",
+          "point": [
+            473,
+            533
+          ],
+          "name_en": "Makuhita",
+          "rules_card_id": "me1_en_072"
+        },
+        {
+          "id": "switch",
+          "point": [
+            980,
+            196
+          ],
+          "name_en": "Switch"
+        },
+        {
+          "id": "gong",
+          "point": [
+            452,
+            680
+          ],
+          "name_en": "Fighting Gong",
+          "rules_card_id": "me2-5_en_187"
+        },
+        {
+          "id": "ultra-ball",
+          "point": [
+            578,
+            680
+          ],
+          "name_en": "Ultra Ball",
+          "rules_card_id": "sv1_en_196"
+        },
+        {
+          "id": "air-balloon",
+          "point": [
+            706,
+            680
+          ],
+          "name_en": "Air Balloon",
+          "rules_card_id": "me2-5_en_181"
+        },
+        {
+          "id": "fighting-energy",
+          "point": [
+            828,
+            700
+          ],
+          "name_en": "Basic {F} Energy"
+        },
+        {
+          "id": "card-back",
+          "point": [
+            914,
+            440
+          ],
+          "name_en": null
+        },
+        {
+          "id": "deck-back",
+          "point": [
+            920,
+            190
+          ],
+          "name_en": null
+        },
+        {
+          "id": "playmat",
+          "point": [
+            300,
+            310
+          ],
+          "name_en": null
+        },
+        {
+          "id": "gap",
+          "point": [
+            760,
+            370
+          ],
+          "name_en": null
+        }
+      ]
+    }
+  ]
+}
