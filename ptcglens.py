@@ -30,6 +30,7 @@ def stop_processes(processes: list[tuple[str, subprocess.Popen]]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--overlay", action="store_true", help="启动游戏内快捷查询浮卡")
     parser.add_argument("--port", type=int, default=8765, help="本地网页端口，默认 8765")
     parser.add_argument("--cache-root", type=Path, help="游戏卡图缓存目录")
     parser.add_argument("--game-cache", type=Path, help="游戏卡牌数据库目录")
@@ -37,6 +38,13 @@ def main() -> int:
     parser.add_argument("--capture-mode", choices=("window", "screen"), default="window",
                         help="window 支持切到浏览器后继续采集；screen 是前台截屏兼容模式")
     args = parser.parse_args()
+    if args.overlay:
+        from overlay_app import main as overlay_main
+        options = []
+        for name in ("cache_root", "game_cache", "translation_root"):
+            if getattr(args, name) is not None:
+                options.extend(("--" + name.replace("_", "-"), str(getattr(args, name))))
+        return overlay_main(options)
     if not 1 <= args.port <= 65535:
         parser.error("端口必须在 1 到 65535 之间")
     if not (ROOT / "output/index/manifest.json").is_file() or not (ROOT / "output/card-data.json").is_file():
