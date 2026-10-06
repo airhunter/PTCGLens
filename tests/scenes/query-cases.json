@@ -829,6 +829,332 @@
           "name_en": null
         }
       ]
+    },
+    {
+      "id": "tilted-meowth-effect",
+      "image": "tilted-meowth-effect.png",
+      "scales": [
+        1.0
+      ],
+      "points": [
+        {
+          "id": "meowth-1",
+          "point": [
+            365,
+            335
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "meowth-2",
+          "point": [
+            379,
+            379
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "meowth-3",
+          "point": [
+            315,
+            465
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "meowth-4",
+          "point": [
+            330,
+            213
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "meowth-5",
+          "point": [
+            250,
+            280
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "outside-1",
+          "point": [
+            558,
+            360
+          ],
+          "name_en": null
+        },
+        {
+          "id": "outside-2",
+          "point": [
+            220,
+            370
+          ],
+          "name_en": null
+        },
+        {
+          "id": "outside-3",
+          "point": [
+            870,
+            374
+          ],
+          "name_en": null
+        },
+        {
+          "id": "outside-4",
+          "point": [
+            877,
+            437
+          ],
+          "name_en": null
+        }
+      ]
+    },
+    {
+      "id": "tilted-meowth-popup",
+      "image": "tilted-meowth-popup.png",
+      "scales": [
+        1.0
+      ],
+      "points": [
+        {
+          "id": "meowth-1",
+          "point": [
+            379,
+            379
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "meowth-2",
+          "point": [
+            365,
+            335
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "meowth-3",
+          "point": [
+            300,
+            440
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "outside-1",
+          "point": [
+            870,
+            374
+          ],
+          "name_en": null
+        },
+        {
+          "id": "outside-2",
+          "point": [
+            220,
+            370
+          ],
+          "name_en": null
+        }
+      ]
+    },
+    {
+      "id": "tilted-meowth-user",
+      "image": "tilted-meowth-user.png",
+      "scales": [
+        1.0
+      ],
+      "points": [
+        {
+          "id": "meowth-1",
+          "point": [
+            226,
+            300
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "meowth-2",
+          "point": [
+            235,
+            430
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "meowth-3",
+          "point": [
+            160,
+            250
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "outside-1",
+          "point": [
+            750,
+            353
+          ],
+          "name_en": null
+        }
+      ]
+    },
+    {
+      "id": "lunatone-choice",
+      "image": "lunatone-choice.png",
+      "scales": [
+        1.0
+      ],
+      "points": [
+        {
+          "id": "effect-click",
+          "point": [
+            988,
+            344
+          ],
+          "name_en": "Lunatone",
+          "rules_card_id": "me1_en_074"
+        },
+        {
+          "id": "illustration",
+          "point": [
+            989,
+            220
+          ],
+          "name_en": "Lunatone",
+          "rules_card_id": "me1_en_074"
+        },
+        {
+          "id": "blank-modal",
+          "point": [
+            500,
+            280
+          ],
+          "name_en": null
+        },
+        {
+          "id": "selection-instruction",
+          "point": [
+            570,
+            505
+          ],
+          "name_en": null
+        },
+        {
+          "id": "next-to-preview",
+          "point": [
+            1137,
+            282
+          ],
+          "name_en": null
+        }
+      ]
+    },
+    {
+      "id": "lunatone-choice-user",
+      "image": "lunatone-choice-user.png",
+      "scales": [
+        1.0
+      ],
+      "points": [
+        {
+          "id": "effect-click",
+          "point": [
+            988,
+            344
+          ],
+          "name_en": "Lunatone",
+          "rules_card_id": "me1_en_074"
+        },
+        {
+          "id": "illustration",
+          "point": [
+            989,
+            220
+          ],
+          "name_en": "Lunatone",
+          "rules_card_id": "me1_en_074"
+        },
+        {
+          "id": "blank-modal",
+          "point": [
+            500,
+            280
+          ],
+          "name_en": null
+        },
+        {
+          "id": "selection-instruction",
+          "point": [
+            570,
+            505
+          ],
+          "name_en": null
+        },
+        {
+          "id": "next-to-preview",
+          "point": [
+            1137,
+            282
+          ],
+          "name_en": null
+        }
+      ]
+    },
+    {
+      "id": "animated-query-6",
+      "image": "animated-query-6.png",
+      "scales": [
+        1.0
+      ],
+      "points": [
+        {
+          "id": "banner-covered-meowth",
+          "point": [
+            558,
+            544
+          ],
+          "name_en": "Meowth ex",
+          "rules_card_id": "me3_en_062"
+        },
+        {
+          "id": "animation-banner",
+          "point": [
+            638,
+            488
+          ],
+          "name_en": null
+        },
+        {
+          "id": "between-bench-cards",
+          "point": [
+            512,
+            558
+          ],
+          "name_en": null
+        },
+        {
+          "id": "blank-bench",
+          "point": [
+            677,
+            554
+          ],
+          "name_en": null
+        }
+      ]
     }
   ]
 }

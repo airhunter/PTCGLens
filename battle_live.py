@@ -12,7 +12,8 @@ import numpy as np
 from PIL import ImageGrab
 
 from battle_multi import adaptive_layout, annotate, recognise_slot, scaled_box, suppress_occluded_slots
-from cache_search import load_index, read_image
+from cache_search import read_image
+from recognition_index import FeatureIndex, compact_records
 from cache_watch import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE, refresh_once
 from global_cards import LargeCardFinder
 from live_capture import client_bbox, game_window, set_dpi_awareness, user32
@@ -20,14 +21,13 @@ from window_capture import WindowCaptureSession, crop_client_frame
 from atomic_json import read_json_retry
 
 
-def load_resources(index_dir: Path, visual_dir: Path, card_data_path: Path) -> tuple[list, dict, dict, LargeCardFinder]:
-    records = load_index(index_dir.resolve())
-    index = {record["card_id"]: record for record in records}
+def load_resources(index_dir: Path, visual_dir: Path, card_data_path: Path) -> tuple[list, dict, FeatureIndex, LargeCardFinder]:
+    index = FeatureIndex(index_dir.resolve())
     visuals = [(path.stem, read_image(path)) for path in sorted(visual_dir.glob("*.png")) if path.stem in index]
     if not visuals:
         raise ValueError("视觉索引为空，请先运行 python cache_watch.py --once")
     cards = read_json_retry(card_data_path)["cards"]
-    return visuals, cards, index, LargeCardFinder(records)
+    return visuals, cards, index, LargeCardFinder(compact_records(visuals))
 
 
 def signature(screenshot: np.ndarray, slot: dict, reference_size: list[int]) -> np.ndarray:

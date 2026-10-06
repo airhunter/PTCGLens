@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections import OrderedDict
+
 import cv2
 import numpy as np
 
-from battle_multi import visual_score
 from card_color import basic_energy_color_matches
 from global_cards import LargeCardFinder
 
@@ -107,6 +108,41 @@ class GridCardFinder:
         self.references=dict(visuals)
         self.sift=cv2.SIFT_create(nfeatures=600)
         self.features={}
+        self.ranking_templates=OrderedDict()
+
+    def rank_candidates(self, observed, width):
+        """复用小图参考，以同一逐通道相关系数筛选；不缓存截图或识别答案。"""
+        sample_width = min(width, 96)
+        sample = cv2.resize(observed,
+            (sample_width, max(1, round(observed.shape[0]*sample_width/width))),
+            interpolation=cv2.INTER_AREA)
+        visible_height = min(sample.shape[0], round(sample_width*1.4))
+        if visible_height < 18:
+            return []
+        small_height = max(8, round(32*visible_height/sample_width))
+        key = (sample_width, visible_height, small_height)
+        matrix = self.ranking_templates.get(key)
+        if matrix is None:
+            rows=[]
+            for _,reference in self.visuals:
+                projected=cv2.resize(reference,(sample_width,round(sample_width*1.4)),
+                    interpolation=cv2.INTER_AREA)
+                small=cv2.resize(projected[:visible_height],(32,small_height),interpolation=cv2.INTER_AREA)
+                small=cv2.GaussianBlur(small,(5,5),0).astype(np.float32)
+                small-=small.mean(axis=(0,1),keepdims=True)
+                row=small.ravel()
+                rows.append(row/max(float(np.linalg.norm(row)),1e-12))
+            matrix=np.asarray(rows,np.float32)
+            self.ranking_templates[key]=matrix
+            while len(self.ranking_templates)>4:
+                self.ranking_templates.popitem(last=False)
+        self.ranking_templates.move_to_end(key)
+        small=cv2.resize(sample[:visible_height],(32,small_height),interpolation=cv2.INTER_AREA)
+        small=cv2.GaussianBlur(small,(5,5),0).astype(np.float32)
+        small-=small.mean(axis=(0,1),keepdims=True)
+        vector=small.ravel()
+        scores=matrix @ (vector/max(float(np.linalg.norm(vector)),1e-12))
+        return sorted([(float(score),cid) for score,(cid,_) in zip(scores,self.visuals)],reverse=True)
 
     def reference(self,card_id,width,height):
         key=(card_id,width,height)
@@ -143,6 +179,30 @@ class GridCardFinder:
                 return result
         return None
 
+    def verify_projected(self, image, point, polygon):
+        """倾斜卡面先校正，再以相同尺度和既有确认条件比较完整卡库。"""
+        corners = np.float32(polygon)
+        if (corners.shape != (4,2) or not np.isfinite(corners).all()
+                or not cv2.isContourConvex(corners)
+                or cv2.pointPolygonTest(corners,tuple(map(float,point)),False) < 0):
+            return None
+        width, height = 220, 308
+        target = np.float32([[0,0],[width,0],[width,height],[0,height]])
+        matrix = cv2.getPerspectiveTransform(corners, target)
+        rectified = cv2.warpPerspective(image, matrix, (width,height))
+        local = cv2.perspectiveTransform(np.float32([[point]]),matrix).reshape(2)
+        result = self.verify_box(rectified,tuple(map(float,local)),[0,0,width,height])
+        if result is None:
+            return None
+        restored = cv2.perspectiveTransform(np.float32(result["polygon"]).reshape(-1,1,2),
+                                           np.linalg.inv(matrix)).reshape(-1,2)
+        if (not np.isfinite(restored).all() or not cv2.isContourConvex(restored)
+                or cv2.pointPolygonTest(restored,tuple(map(float,point)),False)<0):
+            return None
+        return {**result,"verification":"perspective-template",
+            "box":[round(float(v)) for v in (*restored.min(axis=0),*restored.max(axis=0))],
+            "polygon":np.round(restored).astype(int).tolist()}
+
     def check_energy_result(self, image, result):
         """只排除颜色不符的候选；弱几何证据不会因此被提升。"""
         if not result or not str(result.get("name_en", "")).startswith("Basic {"):
@@ -168,7 +228,9 @@ class GridCardFinder:
         observed=image[y:min(bottom,image.shape[0]),x:right]
         if observed.shape[0]<height*.2:
             return None
-        ranked=sorted([(visual_score(observed,ref,[0.,1.]),cid) for cid,ref in self.visuals],reverse=True)
+        # 排名最终只比较 32 像素宽的图，不把全库参考先放大到特写尺寸。
+        # 卡面细节仍在下面的 SIFT 验证中按完整观察尺度复核。
+        ranked=self.rank_candidates(observed,width)
         if not ranked or ranked[0][0]<.4:
             return None
         sample_width = min(width, 220)

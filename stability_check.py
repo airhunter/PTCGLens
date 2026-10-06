@@ -10,6 +10,9 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import cv2
+import numpy as np
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import QObject, QCoreApplication, QEvent, Slot
 from PySide6.QtWidgets import QApplication
@@ -95,13 +98,15 @@ def main():
                 raise ValueError(f"本地卡牌资料缺少期望规则：{point['rules_card_id']}")
         cases.extend((scene["id"], point) for point in scene["points"])
     session = None
-    live = {"frames":0, "dimension_rejections":0, "sizes":[], "positions":[], "closed":False}
+    live = {"frames":0, "changed_frames":0, "dimension_rejections":0,
+            "sizes":[], "positions":[], "closed":False}
     if args.live_capture:
         hwnd, _ = game_window(None)
         session = WindowCaptureSession(hwnd, .1)
     sequence = 0
+    last_signature = None
     def pump():
-        nonlocal sequence
+        nonlocal sequence, last_signature
         app.processEvents()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         if session:
@@ -113,6 +118,10 @@ def main():
                 try:
                     frame = crop_client_frame(latest[1], session.hwnd, bbox=box, strict=True)
                     live["frames"] += 1
+                    signature = cv2.resize(frame,(64,36),interpolation=cv2.INTER_AREA)
+                    if last_signature is not None and np.any(signature != last_signature):
+                        live["changed_frames"] += 1
+                    last_signature = signature
                     size = [frame.shape[1], frame.shape[0]]
                     if size not in live["sizes"]:live["sizes"].append(size)
                     if list(box) not in live["positions"]:live["positions"].append(list(box))

@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 
 from grid_cards import GridCardFinder, pointed_grid_box, partial_edge_boxes
+from battle_multi import visual_score
 from test_pointer_recognition import texture
 
 
@@ -114,3 +115,17 @@ class GridRecognitionTest(unittest.TestCase):
         self.assertEqual(result["status"],"matched")
         self.assertAlmostEqual(result["box"][0],250,delta=8)
         self.assertTrue(all(key[1]<=220 for key in finder.features))
+
+    def test_cached_ranking_matches_color_correlation_for_partial_and_full_cards(self):
+        refs=[texture(seed) for seed in (10,20,30)]
+        finder=GridCardFinder([(str(i),ref) for i,ref in enumerate(refs)],{})
+        for width,height in ((96,134),(64,70),(96,100),(75,55),(96,120)):
+            observed=cv2.resize(refs[1],(width,round(width*1.4)))[:height]
+            actual=dict((cid,score) for score,cid in finder.rank_candidates(observed,width))
+            for i,ref in enumerate(refs):
+                self.assertAlmostEqual(actual[str(i)],visual_score(observed,ref,[0.,1.]),delta=2e-5)
+            self.assertEqual(max(actual,key=actual.get),'1')
+        self.assertLessEqual(len(finder.ranking_templates),4)
+        # 模板可复用，但同一个区域的新卡面必须产生新的候选排序。
+        new=cv2.resize(refs[0],(96,134))[:120]
+        self.assertEqual(finder.rank_candidates(new,96)[0][1],'0')

@@ -241,10 +241,28 @@ class Recognizer(threading.Thread):
         # SIFT 优先确认鼠标下的具体卡图，适用于出战、备战、手牌、牌库及特写。
         result = finder.find_at(screenshot, cards, point)
         result = self.grid_finder.check_energy_result(screenshot, result)
+        if result and result["status"] == "tentative" and result.get("polygon"):
+            verified = self.grid_finder.verify_projected(screenshot,point,result["polygon"])
+            if verified:
+                return verified
+            if result.get("verification") == "geometry-only":
+                result = None  # 几何提议未确认，继续原有卡位及局部卡面回退。
         if result:
             return result
+        # 动画横幅可能遮住牌桌边框和卡牌上沿。布局只提议卡框，
+        # 必须由鼠标所在卡面的严格图像复核确认，不能直接沿用卡位答案。
+        layout = adaptive_layout(screenshot, self.layout)
+        x, y = point
+        for slot in layout["slots"]:
+            if slot["key"] == "preview":
+                continue
+            left, top, right, bottom = scaled_box(slot["box"], layout["reference_size"], screenshot.shape[:2])
+            if left <= x < right and top <= y < bottom:
+                verified = self.grid_finder.verify_box(screenshot, point,
+                    [left, top, right, max(bottom, top+round((right-left)*1.4))])
+                if verified:
+                    return verified
         if is_battle_screen(screenshot):
-            layout = adaptive_layout(screenshot, self.layout)
             x, y = point
             for slot in layout["slots"]:
                 if slot["key"] == "preview":

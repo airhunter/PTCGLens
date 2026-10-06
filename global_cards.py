@@ -90,7 +90,55 @@ class LargeCardFinder:
         result = max(found, key=lambda result: result["sift_inliers"], default=None)
         if result and point is not None and result["status"] == "tentative":
             result = self.refine_pointed(result, points, descriptors, groups, cards, point)
+        if result is None and point is not None:
+            result = self.pointed_geometry(points, descriptors, groups, screenshot.shape[:2], point)
         return result
+
+    def pointed_geometry(self, points, descriptors, groups, shape, point):
+        """弱全库证据只用于提议校正区域，不能直接确认卡牌或显示规则。"""
+        owners = sorted((owner for owner in groups if len(groups[owner]) >= 4),
+                        key=lambda owner:len(groups[owner]), reverse=True)[:8]
+        proposals = []
+        for owner in owners:
+            record = self.records[owner]
+            pairs = cv2.BFMatcher(cv2.NORM_L2).knnMatch(descriptors, record["descriptors"], k=2)
+            matches = [pair[0] for pair in pairs if len(pair)==2
+                       and pair[0].distance < .72*pair[1].distance]
+            for _ in range(4):
+                if len(matches) < 18:
+                    break
+                source = np.float32([record["points"][m.trainIdx] for m in matches]).reshape(-1,1,2)
+                target = np.float32([points[m.queryIdx].pt for m in matches]).reshape(-1,1,2)
+                matrix, mask = cv2.findHomography(source, target, cv2.RANSAC, 3.)
+                if matrix is None or mask is None:
+                    break
+                valid = mask.ravel().astype(bool)
+                count, ratio = int(valid.sum()), float(valid.mean())
+                w, h = record["dimensions"]
+                corners = cv2.perspectiveTransform(np.float32(
+                    [[0,0],[w,0],[w,h],[0,h]]).reshape(-1,1,2), matrix).reshape(-1,2)
+                if (not np.isfinite(corners).all() or not cv2.isContourConvex(corners)
+                        or count < 18 or ratio < .6):
+                    break
+                if cv2.pointPolygonTest(corners, point, False) < 0:
+                    matches = [m for m, keep in zip(matches, valid) if not keep]
+                    continue
+                spread = np.ptp(source[valid].reshape(-1,2),axis=0)/(w,h)
+                widths = np.linalg.norm(corners[[1,2]]-corners[[0,3]],axis=1)
+                heights = np.linalg.norm(corners[[3,2]]-corners[[0,1]],axis=1)
+                area = abs(float(cv2.contourArea(corners)))/(shape[0]*shape[1])
+                if (spread[0] < .35 or spread[1] < .12 or not .0015 <= area <= .95
+                        or not .5 <= widths.mean()/max(heights.mean(),1) <= .9
+                        or min(*widths,*heights) < 15
+                        or max(widths)/min(widths) > 1.5 or max(heights)/min(heights) > 1.5):
+                    break
+                proposals.append({"key":"preview", "label":"卡牌", "status":"tentative",
+                    "verification":"geometry-only", "sift_inliers":count,
+                    "inlier_ratio":round(ratio,3), "candidates":[],
+                    "box":[round(float(v)) for v in (*corners.min(axis=0),*corners.max(axis=0))],
+                    "polygon":corners.tolist()})
+                break
+        return max(proposals,key=lambda p:p["sift_inliers"],default=None)
 
     @staticmethod
     def rules_signature(card):
