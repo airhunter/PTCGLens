@@ -170,6 +170,14 @@ class GridCardFinder:
             result = self.verify_box(image,point,[x,y,x+w,y+round(w*1.4)])
             if result:
                 return result
+            # 浅色标题栏可能与背景融在一起，轮廓只包住下半张牌。
+            # 以观测到的下沿补回标题；几何提议仍须通过完整卡库复核。
+            full_height = round(w*1.4)
+            restored_top = y+h-full_height
+            if h < full_height-max(4,round(w*.06)) and restored_top >= 0:
+                result = self.verify_box(image,point,[x,restored_top,x+w,y+h])
+                if result:
+                    return result
         return None
 
     def find_partial(self, image, point):

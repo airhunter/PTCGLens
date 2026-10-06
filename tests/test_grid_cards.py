@@ -129,3 +129,21 @@ class GridRecognitionTest(unittest.TestCase):
         # 模板可复用，但同一个区域的新卡面必须产生新的候选排序。
         new=cv2.resize(refs[0],(96,134))[:120]
         self.assertEqual(finder.rank_candidates(new,96)[0][1],'0')
+
+    def test_missing_header_outline_restores_card_from_observed_bottom(self):
+        canvas,refs=self.scene()
+        finder=GridCardFinder([('first',refs[0])],{'first':{'name_en':'First'}})
+        with patch('grid_cards.card_rectangles',return_value=[(100,121,90,105)]):
+            result=finder.find_at(canvas,(145,150))
+        self.assertIsNotNone(result)
+        self.assertEqual(result['status'],'matched')
+        self.assertEqual(result['card_id'],'first')
+        self.assertAlmostEqual(result['box'][1],100,delta=5)
+        self.assertGreaterEqual(result['sift_inliers'],25)
+
+    def test_restored_header_geometry_does_not_confirm_plain_rectangle(self):
+        canvas,refs=self.scene()
+        canvas[100:226,100:190]=230
+        finder=GridCardFinder([('first',refs[0])],{'first':{'name_en':'First'}})
+        with patch('grid_cards.card_rectangles',return_value=[(100,121,90,105)]):
+            self.assertIsNone(finder.find_at(canvas,(145,150)))

@@ -1155,6 +1155,209 @@
           "name_en": null
         }
       ]
+    },
+    {
+      "id": "battle-1080-charmander-preview",
+      "image": "game-1080-validation.png",
+      "scales": [
+        1.0
+      ],
+      "points": [
+        {
+          "id": "charmander-art",
+          "point": [
+            637,
+            325
+          ],
+          "name_en": "Charmander",
+          "rules_card_id": "me2_en_011"
+        },
+        {
+          "id": "charmander-name",
+          "point": [
+            613,
+            175
+          ],
+          "name_en": "Charmander",
+          "rules_card_id": "me2_en_011"
+        },
+        {
+          "id": "riolu-bench",
+          "point": [
+            707,
+            108
+          ],
+          "name_en": "Riolu",
+          "rules_card_id": "me1_en_076"
+        },
+        {
+          "id": "riolu-active",
+          "point": [
+            975,
+            293
+          ],
+          "name_en": "Riolu",
+          "rules_card_id": "me1_en_076"
+        },
+        {
+          "id": "night-stretcher-hand",
+          "point": [
+            867,
+            1020
+          ],
+          "name_en": "Night Stretcher",
+          "rules_card_id": "me2-5_en_196"
+        },
+        {
+          "id": "fire-energy-hand",
+          "point": [
+            1053,
+            1030
+          ],
+          "name_en": "Basic {R} Energy",
+          "rules_card_id": "mee_en_002"
+        },
+        {
+          "id": "opponent-deck-back",
+          "point": [
+            1374,
+            300
+          ],
+          "name_en": null
+        },
+        {
+          "id": "blank-board",
+          "point": [
+            1530,
+            470
+          ],
+          "name_en": null
+        }
+      ]
+    },
+    {
+      "id": "battle-1080-rare-candy-preview",
+      "image": "game-1080-battle.png",
+      "scales": [
+        1.0
+      ],
+      "points": [
+        {
+          "id": "rare-candy-preview",
+          "point": [
+            1047,
+            543
+          ],
+          "name_en": "Rare Candy",
+          "rules_card_id": "me1_en_125"
+        },
+        {
+          "id": "rare-candy-name",
+          "point": [
+            1040,
+            450
+          ],
+          "name_en": "Rare Candy",
+          "rules_card_id": "me1_en_125"
+        },
+        {
+          "id": "rare-candy-hand",
+          "point": [
+            1050,
+            1030
+          ],
+          "name_en": "Rare Candy",
+          "rules_card_id": "me1_en_125"
+        },
+        {
+          "id": "riolu-bench",
+          "point": [
+            708,
+            107
+          ],
+          "name_en": "Riolu",
+          "rules_card_id": "me1_en_076"
+        },
+        {
+          "id": "lucario-active",
+          "point": [
+            953,
+            308
+          ],
+          "name_en": "Mega Lucario ex",
+          "rules_card_id": "me1_en_077"
+        },
+        {
+          "id": "charmander-bench",
+          "point": [
+            707,
+            803
+          ],
+          "name_en": "Charmander",
+          "rules_card_id": "me2_en_011"
+        },
+        {
+          "id": "fezandipiti-bench",
+          "point": [
+            833,
+            802
+          ],
+          "name_en": "Fezandipiti ex",
+          "rules_card_id": "sv6-5_en_038"
+        },
+        {
+          "id": "charizard-hand",
+          "point": [
+            678,
+            1010
+          ],
+          "name_en": "Mega Charizard X ex",
+          "rules_card_id": "me2_en_013"
+        },
+        {
+          "id": "firebreather-hand",
+          "point": [
+            868,
+            1020
+          ],
+          "name_en": "Firebreather",
+          "rules_card_id": "me2_en_089"
+        },
+        {
+          "id": "night-stretcher-hand",
+          "point": [
+            1239,
+            1028
+          ],
+          "name_en": "Night Stretcher",
+          "rules_card_id": "me2-5_en_196"
+        },
+        {
+          "id": "fire-energy-discard",
+          "point": [
+            1480,
+            650
+          ],
+          "name_en": "Basic {R} Energy",
+          "rules_card_id": "mee_en_002"
+        },
+        {
+          "id": "opponent-deck-back",
+          "point": [
+            1369,
+            300
+          ],
+          "name_en": null
+        },
+        {
+          "id": "blank-board",
+          "point": [
+            1611,
+            470
+          ],
+          "name_en": null
+        }
+      ]
     }
   ]
 }
