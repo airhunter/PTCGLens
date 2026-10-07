@@ -117,7 +117,11 @@ uv run ptcglens.py
 
 ## 数据与来源
 
+可选的本地中文卡牌资源包放在 `local-resources/中文卡牌图片资源包_2025060501.asar`。该文件约 5.23 GiB，包含 8,371 个按游戏卡牌 ID 命名的 Unity 资源，保留用于后续提取和验证离线中文卡面；目前程序尚未读取此包，运行项目无需准备它。卡面清晰度、中文覆盖和匹配兼容性仍待验证。`local-resources/` 已加入 Git 忽略规则，资源包需自行提供，不随仓库分发。
+
 `output/`、`.tmp/` 和本地依赖目录均被版本控制忽略。仓库不分发游戏截图、卡图、游戏数据库或中文化项目的数据。中文对照表由用户自行从 [PTCGL 中文化项目](https://github.com/Hill-98/ptcg-live-zh-mod)取得；该上游仓库标注为 GPL-3.0。原生浮卡按需下载的简中卡面来自 [PTCG-CHS-Datasets](https://github.com/duanxr/PTCG-CHS-Datasets)，英文高清图来自 [TCGdex](https://tcgdex.dev/assets)，均留在用户本地缓存。卡牌及游戏素材的权利归其各自权利人所有，源码许可证不包含这些素材。
+
+资源包来源说明：本地 `.asar` 的名称与格式符合 [Hill-98/ptcg-live-zh-mod](https://github.com/Hill-98/ptcg-live-zh-mod) 中文化模组使用的独立卡图资源包。[上游安装指南](https://xtgs.mivm.cn/guide/get-ready/Windows/HowToInstallTheCHS)提供网盘下载入口，并注明中文卡牌图片资源包由 Kuyo 加速器提供；上游仓库说明卡图来自网络。尚未取得本地 `2025060501` 文件的原始下载记录或上游校验值，因此其具体发布版本与下载来源仍待确认。模组源码的 GPL-3.0 许可证不代表卡图素材也采用该许可证。
 
 ## 许可证
 

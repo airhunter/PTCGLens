@@ -2,6 +2,7 @@
 .venv/
 .tmp/
 output/
+local-resources/
 .playwright-cli/
 __pycache__/
 *.pyc
