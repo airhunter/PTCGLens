@@ -6,6 +6,7 @@ import argparse
 import ctypes
 import json
 import os
+import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -26,12 +27,17 @@ from overlay_app import Events, ReadingCard, Recognizer, configure_font
 from query_diagnostics import QueryFailureRecorder
 from query_regression import normal_name
 from window_capture import WindowCaptureSession, crop_client_frame
+from qt_runtime import prepare_qt_plugins
 
 
 ROOT = Path(__file__).resolve().parent
 
 
 def private_megabytes():
+    if sys.platform != "win32":
+        import resource
+        # macOS ru_maxrss 为字节；这是峰值 RSS，与 Windows private bytes 口径不同。
+        return round(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024**2, 1)
     class Counters(ctypes.Structure):
         _fields_ = [("cb", ctypes.c_ulong), ("faults", ctypes.c_ulong)] + [
             (name, ctypes.c_size_t) for name in ("peak_working", "working", "peak_paged", "paged",
@@ -68,6 +74,7 @@ def main():
     if args.duration < 1 or not 1 <= args.burst_size <= 1000:
         parser.error("测试时长至少为 1 秒，突发查询数须在 1 至 1000 之间")
     set_dpi_awareness()
+    plugin_directory = prepare_qt_plugins()
     app = QApplication([])
     configure_font(app)
     events = Events()

@@ -8,6 +8,7 @@ import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from platform_backend.paths import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE
 from atomic_json import read_json_retry
 from urllib.parse import urlsplit
 
@@ -101,7 +102,7 @@ def card_art_bytes(card_id: str, cache_root: Path, large_dir: Path,
 def make_handler(output_dir: Path, visual_dir: Path, card_data_path: Path,
                  cache_root: Path | None = None, large_dir: Path | None = None,
                  translation_cache_path: Path | None = None):
-    cache_root = cache_root or Path.home() / "AppData/LocalLow/Unity/pokemon_Pokemon TCG Live"
+    cache_root = cache_root or DEFAULT_CARD_CACHE
     large_dir = large_dir or Path("output/card-large")
     translator = TranslationCache(translation_cache_path or Path("output/translation-cache.json"))
     class Handler(BaseHTTPRequestHandler):
@@ -125,7 +126,7 @@ def make_handler(output_dir: Path, visual_dir: Path, card_data_path: Path,
                 return
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 1024:
+                if not 0 < length <= 16384:
                     raise ValueError("请求长度无效")
                 request = json.loads(self.rfile.read(length))
                 card_id = request.get("card_id")
@@ -140,11 +141,17 @@ def make_handler(output_dir: Path, visual_dir: Path, card_data_path: Path,
                     return
                 if field == "card_text":
                     source, local = card.get("card_text_en"), card.get("card_text_zh")
-                elif field == "attack_text" and type(index) is int and 0 <= index < len(card.get("attacks", [])):
+                elif field == "card_name":
+                    source, local = card.get("name_en"), card.get("name_zh")
+                elif field in ("attack_text", "attack_name") and type(index) is int and 0 <= index < len(card.get("attacks", [])):
                     attack = card["attacks"][index]
-                    source, local = attack.get("text_en"), attack.get("text_zh")
+                    prefix = "name" if field == "attack_name" else "text"
+                    source, local = attack.get(prefix+"_en"), attack.get(prefix+"_zh")
                 else:
                     raise ValueError("翻译字段无效")
+                if request.get("expected_source", source) != source:
+                    self.send_json({"error": "卡牌资料已更新，请重新查询"}, 409)
+                    return
                 if local:
                     self.send_json({"translation": local, "source": "local", "cached": True})
                     return
@@ -203,7 +210,7 @@ def main() -> None:
     parser.add_argument("--visual-dir", type=Path, default=Path("output/card-thumbnails"))
     parser.add_argument("--large-dir", type=Path, default=Path("output/card-large"))
     parser.add_argument("--cache-root", type=Path,
-                        default=Path.home() / "AppData/LocalLow/Unity/pokemon_Pokemon TCG Live")
+                        default=DEFAULT_CARD_CACHE)
     parser.add_argument("--card-data", type=Path, default=Path("output/card-data.json"))
     parser.add_argument("--translation-cache", type=Path, default=Path("output/translation-cache.json"))
     args = parser.parse_args()

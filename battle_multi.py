@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from platform_backend.paths import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE, chinese_font_path
 from atomic_json import read_json_retry
 
 import cv2
@@ -273,7 +274,7 @@ def annotate(screenshot: np.ndarray, slots: list[dict], destination: Path) -> No
     canvas = Image.fromarray(cv2.cvtColor(screenshot, cv2.COLOR_BGR2RGB))
     draw = ImageDraw.Draw(canvas)
     try:
-        font = ImageFont.truetype("C:/Windows/Fonts/msyh.ttc", 19)
+        font = ImageFont.truetype(str(chinese_font_path()), 19)
     except OSError:
         font = ImageFont.load_default()
     colors = {"matched": "#31e68a", "tentative": "#ffcf58", "unknown": "#ff6868",
@@ -351,7 +352,7 @@ def main() -> None:
     subcommands = parser.add_subparsers(dest="command", required=True)
     build = subcommands.add_parser("build-visual", help="Extract card thumbnails from the local Unity cache")
     build.add_argument("--index-dir", type=Path, default=Path("output/index"))
-    build.add_argument("--cache-root", type=Path, default=Path.home() / "AppData/LocalLow/Unity/pokemon_Pokemon TCG Live")
+    build.add_argument("--cache-root", type=Path, default=DEFAULT_CARD_CACHE)
     build.add_argument("--visual-dir", type=Path, default=Path("output/card-thumbnails"))
     find = subcommands.add_parser("search", help="Recognise cards in each configured battle slot")
     find.add_argument("--screenshot", type=Path, required=True)

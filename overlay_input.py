@@ -1,140 +1,160 @@
-"""Windows 鼠标钩子：只拦截游戏内按住查询键的指定点击。"""
-
-from __future__ import annotations
-
-import ctypes
+"""公共悬停状态机；原生组合点击由各平台后端实现。"""
+import math
 import threading
-from ctypes import wintypes
-
-from live_capture import set_dpi_awareness, user32
-from overlay_model import MODIFIERS, shortcut_keys
-
-
-class MouseData(ctypes.Structure):
-    _fields_ = [("pt", wintypes.POINT), ("mouseData", wintypes.DWORD),
-                ("flags", wintypes.DWORD), ("time", wintypes.DWORD), ("extra", ctypes.c_size_t)]
+import time
+from platform_backend import get_backend
+from overlay_model import parse_shortcut
 
 
-class KeyData(ctypes.Structure):
-    _fields_ = [("vkCode", wintypes.DWORD), ("scanCode", wintypes.DWORD),
-                ("flags", wintypes.DWORD), ("time", wintypes.DWORD), ("extra", ctypes.c_size_t)]
+class HoverState:
+    def __init__(self, delay=.6, tolerance=6):
+        self.delay, self.tolerance = delay, tolerance
+        self.epoch = 0
+        self.held = False
+        self.blocked = False
+        self.anchor = self.since = self.target = None
+        self.fired = False
+
+    def reset(self):
+        self.epoch += 1
+        self.held = False
+        self.anchor = self.since = self.target = None
+        self.fired = False
+
+    def step(self, now, pressed, active, point, over_game=True, over_popup=False):
+        if not pressed:
+            was_held = self.held
+            if was_held:
+                self.reset()
+            self.blocked = False
+            return "dismiss" if was_held else None
+        if not active:
+            was_held = self.held
+            if was_held:
+                self.reset()
+            self.blocked = True
+            return "dismiss" if was_held else None
+        if self.blocked:
+            return None
+        if not self.held:
+            self.held = True
+            self.epoch += 1
+        if over_popup or not over_game:
+            self.anchor = self.since = None
+            return None
+        if self.target:
+            l, t, r, b = self.target
+            if l <= point[0] < r and t <= point[1] < b:
+                return None
+        if self.anchor is None or math.dist(self.anchor, point) > self.tolerance:
+            self.anchor, self.since, self.fired = point, now, False
+        if not self.fired and now-self.since >= self.delay:
+            self.fired = True
+            return "query"
+        return None
 
 
-PROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
-user32.SetWindowsHookExW.argtypes = (ctypes.c_int, PROC, wintypes.HINSTANCE, wintypes.DWORD)
-user32.SetWindowsHookExW.restype = wintypes.HANDLE
-user32.CallNextHookEx.argtypes = (wintypes.HANDLE, ctypes.c_int, wintypes.WPARAM, wintypes.LPARAM)
-user32.CallNextHookEx.restype = ctypes.c_ssize_t
-user32.UnhookWindowsHookEx.argtypes = (wintypes.HANDLE,)
-user32.GetAsyncKeyState.argtypes = (ctypes.c_int,)
-user32.GetAsyncKeyState.restype = ctypes.c_short
-user32.PostThreadMessageW.argtypes = (wintypes.DWORD, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
-user32.WindowFromPoint.argtypes = (wintypes.POINT,)
-user32.WindowFromPoint.restype = wintypes.HWND
-user32.GetAncestor.argtypes = (wintypes.HWND, wintypes.UINT)
-user32.GetAncestor.restype = wintypes.HWND
-
-
-class MouseTrigger(threading.Thread):
-    def __init__(self, callback, error_callback, shortcut="Ctrl+Alt", button="right", dismiss_callback=None):
-        super().__init__(daemon=True, name="PTCGLens mouse hook")
-        self.callback, self.error_callback = callback, error_callback
-        self.hwnd, self.bbox = None, None
-        self.thread_id = 0
-        self.config = (shortcut_keys(shortcut), button)
-        self.swallowed_up = None
-        self.stop_event = threading.Event()
+class HoverTrigger(threading.Thread):
+    def __init__(self, callback, error_callback, shortcut="Ctrl+Alt", delay=.6, dismiss_callback=None):
+        super().__init__(daemon=True, name="PTCGLens hover")
+        parse_shortcut(shortcut)
+        self.callback, self.error_callback, self.dismiss_callback = callback, error_callback, dismiss_callback
+        self.shortcut = shortcut
+        self.state = HoverState(delay)
+        self.hwnd = self.bbox = self.popup_hwnd = None
+        self.popup_contains = lambda p: False
+        self.dismiss_enabled = self.outside_dismiss_enabled = False
         self.last_click = None
-        self.dismiss_callback = dismiss_callback
-        self.dismiss_enabled = False
-        self.outside_dismiss_enabled = False
-        self.popup_hwnd = None
-        self.escape_swallowed = False
+        self.last_window = None
+        self.last_bounds = None
+        self.stop_event, self.lock = threading.Event(), threading.RLock()
+        self.escape_hook = None
 
-    def configure(self, shortcut, button):
-        self.config = (shortcut_keys(shortcut), button)
+    @property
+    def dismiss_enabled(self):
+        return getattr(self, "_dismiss_enabled", False)
 
-    def dismiss_outside_click(self, message, hovered_root):
-        """只通知收起；普通左键始终继续传给原窗口，浮卡内按钮仍可操作。"""
-        if (message == 0x0201 and self.outside_dismiss_enabled and self.popup_hwnd
-                and hovered_root != self.popup_hwnd and self.dismiss_callback):
-            self.dismiss_callback()
+    @dismiss_enabled.setter
+    def dismiss_enabled(self, enabled):
+        self._dismiss_enabled = enabled
+        hook = getattr(self, "escape_hook", None)
+        if hook is not None:
+            hook.dismiss_enabled = enabled
+
+    def valid(self, epoch):
+        with self.lock:
+            backend = get_backend()
+            return (self.state.held and epoch == self.state.epoch and
+                    backend.shortcut_pressed(self.shortcut) and backend.is_foreground(self.hwnd))
+
+    def set_target(self, target):
+        with self.lock:
+            self.state.target = target
+
+    def invalidate(self):
+        with self.lock:
+            self.state.reset()
+            self.state.blocked = True
 
     def run(self):
-        set_dpi_awareness()
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-        self.thread_id = kernel32.GetCurrentThreadId()
-        message = wintypes.MSG()
-        user32.PeekMessageW(ctypes.byref(message), None, 0, 0, 0)
-
-        @PROC
-        def handle(code, message, data):
-            if code >= 0:
-                if message == self.swallowed_up:
-                    self.swallowed_up = None
-                    return 1
-                keys, button = self.config
-                down, up = (0x0201, 0x0202) if button == "left" else (0x0204, 0x0205)
-                if message == down:
-                    point = ctypes.cast(data, ctypes.POINTER(MouseData)).contents.pt
-                    pressed = tuple(key for key in MODIFIERS.values() if user32.GetAsyncKeyState(key) & 0x8000)
-                    self.last_click = (self.hwnd, user32.GetForegroundWindow(), pressed, point.x, point.y)
-                if message == down and self.hwnd and user32.GetForegroundWindow() == self.hwnd:
-                    if all(user32.GetAsyncKeyState(key) & 0x8000 for key in keys) and all(
-                        not user32.GetAsyncKeyState(key) & 0x8000
-                        for key in MODIFIERS.values() if key not in keys
-                    ):
-                        point = ctypes.cast(data, ctypes.POINTER(MouseData)).contents.pt
-                        box = self.bbox
-                        hovered = user32.WindowFromPoint(point)
-                        if box and box[0] <= point.x < box[2] and box[1] <= point.y < box[3] \
-                                and user32.GetAncestor(hovered, 2) == self.hwnd:
-                            try:
-                                self.callback(point.x, point.y)
-                            except Exception as exc:
-                                self.error_callback(f"查询画面暂不可用：{exc}")
-                            else:
-                                self.swallowed_up = up
-                                return 1
-                # 查询点击优先；鼠标左键查询不会先被当作关闭动作。
-                if message == 0x0201 and self.outside_dismiss_enabled:
-                    point = ctypes.cast(data, ctypes.POINTER(MouseData)).contents.pt
-                    hovered = user32.WindowFromPoint(point)
-                    self.dismiss_outside_click(message, user32.GetAncestor(hovered, 2))
-            return user32.CallNextHookEx(None, code, message, data)
-
-        @PROC
-        def keyboard(code, message, data):
-            if code >= 0 and ctypes.cast(data, ctypes.POINTER(KeyData)).contents.vkCode == 0x1B:
-                if message in (0x0100, 0x0104) and (
-                    self.escape_swallowed or self.dismiss_enabled and self.hwnd == user32.GetForegroundWindow()
-                ):
-                    self.escape_swallowed = True
-                    if self.dismiss_callback:
-                        self.dismiss_callback()
-                    return 1
-                if message in (0x0101, 0x0105) and self.escape_swallowed:
-                    self.escape_swallowed = False
-                    return 1
-            return user32.CallNextHookEx(None, code, message, data)
-
-        hook = user32.SetWindowsHookExW(14, handle, None, 0)
-        if not hook:
-            self.error_callback(f"无法注册鼠标查询：{ctypes.WinError(ctypes.get_last_error())}")
-            return
-        self.error_callback("鼠标查询已注册")
-        keyboard_hook = user32.SetWindowsHookExW(13, keyboard, None, 0)
-        if not keyboard_hook:
-            self.error_callback("Esc 关闭键注册失败，请使用浮卡关闭按钮")
-        try:
-            while not self.stop_event.is_set() and user32.GetMessageW(ctypes.byref(message), None, 0, 0) > 0:
-                pass
-        finally:
-            user32.UnhookWindowsHookEx(hook)
-            if keyboard_hook:
-                user32.UnhookWindowsHookEx(keyboard_hook)
+        backend = get_backend()
+        backend.set_dpi_awareness()
+        # 只过滤可见浮卡的 Esc；鼠标点击始终传给游戏。
+        self.escape_hook = backend.MouseTrigger(lambda *args: None, self.error_callback,
+                                                dismiss_callback=self.dismiss_callback)
+        self.escape_hook.query_enabled = False
+        self.escape_hook.start()
+        last_error = 0
+        while not self.stop_event.is_set():
+            try:
+                pressed = backend.shortcut_pressed(self.shortcut)
+                active = backend.is_foreground(self.hwnd)
+                self.escape_hook.hwnd = self.hwnd
+                self.escape_hook.dismiss_enabled = self.dismiss_enabled
+                point = backend.pointer_position()
+                box = self.bbox
+                inside = bool(box and box[0] <= point[0] < box[2] and box[1] <= point[1] < box[3])
+                with self.lock:
+                    if self.hwnd != self.last_window and self.state.held:
+                        self.state.reset()
+                        self.state.blocked = True
+                        if self.dismiss_callback:
+                            self.dismiss_callback()
+                    elif box != self.last_bounds:
+                        self.state.target = self.state.anchor = self.state.since = None
+                        self.state.fired = False
+                    self.last_window, self.last_bounds = self.hwnd, box
+                    if self.state.held and active and backend.escape_pressed():
+                        self.state.reset()
+                        self.state.blocked = True
+                        if self.dismiss_callback:
+                            self.dismiss_callback()
+                    action = self.state.step(time.monotonic(), pressed, active, point,
+                        over_game=inside and backend.pointer_over_window(self.hwnd, point),
+                        over_popup=self.popup_contains(point))
+                    epoch = self.state.epoch
+                if action == "dismiss" and self.dismiss_callback:
+                    self.dismiss_callback()
+                elif action == "query":
+                    self.callback(*point, epoch)
+            except Exception as exc:
+                if time.monotonic()-last_error > 5:
+                    self.error_callback(f"悬停输入暂不可用：{exc}")
+                    last_error = time.monotonic()
+                with self.lock:
+                    was_held = self.state.held
+                    self.state.reset()
+                if was_held and self.dismiss_callback:
+                    self.dismiss_callback()
+            self.stop_event.wait(.03)
+        self.escape_hook.stop()
+        self.escape_hook.join(timeout=1)
 
     def stop(self):
         self.stop_event.set()
-        if self.thread_id:
-            user32.PostThreadMessageW(self.thread_id, 0x0012, 0, 0)
+        if self.escape_hook is not None:
+            self.escape_hook.stop()
+
+
+def MouseTrigger(*args, **kwargs):
+    return get_backend().MouseTrigger(*args, **kwargs)

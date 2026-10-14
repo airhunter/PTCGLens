@@ -20,11 +20,11 @@ ENERGY = {
 }
 
 
-def readable_text(source: str) -> str:
+def readable_text(source: str, language: str = "zh") -> str:
     """把游戏文字里的能量图标转换成可供翻译的文字。"""
     source = re.sub(
         r'<sprite name="([^"]+)"[^>]*>',
-        lambda match: f"[{ENERGY.get(match.group(1), match.group(1))}]", source,
+        lambda match: f"[{ENERGY.get(match.group(1), match.group(1)) if language == 'zh' else match.group(1)}]", source,
     )
     source = re.sub(r"<br\s*/?>", "\n", source, flags=re.IGNORECASE)
     source = re.sub(r"<[^>]+>", "", source)
@@ -70,20 +70,29 @@ class TranslationCache:
     def __init__(self, path: Path):
         self.path = path
         self.lock = threading.Lock()
+        self.network_lock = threading.Lock()
         try:
             self.entries = read_json_retry(path)
         except (FileNotFoundError, json.JSONDecodeError):
             self.entries = {}
+
+    def cached(self, source: str) -> str | None:
+        key = hashlib.sha256(readable_text(source).encode("utf-8")).hexdigest()
+        with self.lock:
+            return self.entries.get(key)
 
     def translate(self, source: str) -> tuple[str, bool]:
         normalized = readable_text(source)
         if not normalized:
             raise ValueError("没有可翻译的英文文本")
         key = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-        with self.lock:
-            if key in self.entries:
-                return self.entries[key], True
+        # 缓存读取不会被网络请求阻塞；串行请求仍避免同一文本重复下载。
+        with self.network_lock:
+            with self.lock:
+                if key in self.entries:
+                    return self.entries[key], True
             translated = "\n".join(translate_segment(part) for part in segments(normalized))
-            self.entries[key] = translated
-            write_json_atomic(self.path, self.entries)
+            with self.lock:
+                self.entries[key] = translated
+                write_json_atomic(self.path, self.entries)
             return translated, False

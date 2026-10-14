@@ -3,11 +3,27 @@
 from __future__ import annotations
 
 
-MODIFIERS = {"ctrl": 0x11, "alt": 0x12, "shift": 0x10}
+MODIFIERS = {"ctrl": 0x11, "alt": 0x12, "shift": 0x10, "cmd": 0x5B}
+
+
+def parse_shortcut(text: str) -> tuple[str, ...]:
+    aliases = {"control": "ctrl", "option": "alt", "command": "cmd"}
+    parts = tuple(aliases.get(part.strip().lower(), part.strip().lower()) for part in text.split("+"))
+    for part in parts:
+        if part in MODIFIERS or len(part) == 1 and part.isascii() and part.isalnum():
+            continue
+        if part.startswith("f") and part[1:].isdigit() and 1 <= int(part[1:]) <= 24:
+            continue
+        raise ValueError("使用 Ctrl、Alt/Option、Shift、Cmd、字母、数字或 F1–F24，以 + 分隔")
+    if not any(part in MODIFIERS for part in parts):
+        raise ValueError("至少包含一个修饰键，避免普通输入误触发")
+    if len(set(parts)) != len(parts):
+        raise ValueError("快捷键中有重复按键")
+    return parts
 
 
 def shortcut_keys(text: str) -> tuple[int, ...]:
-    parts = [part.strip().lower() for part in text.split("+")]
+    parts = parse_shortcut(text)
     keys = []
     for part in parts:
         if part in MODIFIERS:

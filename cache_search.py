@@ -8,6 +8,7 @@ import re
 import time
 from functools import lru_cache
 from pathlib import Path
+from platform_backend.paths import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE
 from atomic_json import read_json_retry, write_json_atomic
 
 import cv2
@@ -260,7 +261,7 @@ def main() -> None:
     build.add_argument("--cache-root", type=Path, required=True)
     build.add_argument("--index-dir", type=Path, default=Path("output/index"))
     update = subparsers.add_parser("update")
-    update.add_argument("--cache-root", type=Path, default=Path.home() / "AppData/LocalLow/Unity/pokemon_Pokemon TCG Live")
+    update.add_argument("--cache-root", type=Path, default=DEFAULT_CARD_CACHE)
     update.add_argument("--index-dir", type=Path, default=Path("output/index"))
     search = subparsers.add_parser("search")
     search.add_argument("--index-dir", type=Path, default=Path("output/index"))

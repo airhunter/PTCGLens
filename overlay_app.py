@@ -15,7 +15,7 @@ from PySide6.QtCore import QLockFile, QObject, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                               QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
-                              QSystemTrayIcon, QVBoxLayout, QWidget)
+                              QSystemTrayIcon, QVBoxLayout, QWidget, QScrollArea, QFrame, QDoubleSpinBox, QStyle)
 
 from battle_live import is_battle_screen, load_resources
 from battle_multi import adaptive_layout, recognise_slot, scaled_box
@@ -24,13 +24,16 @@ from card_data import build_card_data
 from card_translation import TranslationCache, readable_text
 from card_images import CardImageSources
 from grid_cards import GridCardFinder
-from live_capture import client_bbox, game_window, set_dpi_awareness, user32
-from overlay_input import MouseTrigger
+from live_capture import client_bbox, game_window, set_dpi_awareness, is_foreground, check_permissions
+from overlay_input import MouseTrigger, HoverTrigger
+from platform_backend.paths import chinese_font_path
+from platform_backend import get_backend
+from qt_runtime import prepare_qt_plugins
 from overlay_geometry import placement_geometry
-from overlay_model import frame_point, popup_position, relative_rect, restore_rect, shortcut_keys
+from overlay_model import frame_point, popup_position, relative_rect, restore_rect
 from latest_jobs import LatestJobQueue
 from query_diagnostics import QueryFailureRecorder
-from atomic_json import read_json_retry
+from atomic_json import read_json_retry, write_json_atomic
 from window_capture import WindowCaptureSession, crop_client_frame
 
 
@@ -39,10 +42,10 @@ SETTINGS = ROOT / "output/overlay-settings.json"
 
 
 def configure_font(app):
-    font_file = Path("C:/Windows/Fonts/msyh.ttc")
-    if font_file.is_file():
+    font_file = chinese_font_path()
+    if font_file:
         QFontDatabase.addApplicationFont(str(font_file))
-    app.setFont(QFont("Microsoft YaHei UI", 10))
+    app.setFont(QFont("PingFang SC" if sys.platform == "darwin" else "Microsoft YaHei UI", 10))
 
 
 class Events(QObject):
@@ -52,7 +55,7 @@ class Events(QObject):
     status = Signal(str)
     answer = Signal(object)
     art = Signal(int, object)
-    translated = Signal(int, int, str)
+    translated = Signal(int, object, str)
 
 
 class Recognizer(threading.Thread):
@@ -74,7 +77,23 @@ class Recognizer(threading.Thread):
                                               ROOT / "output/card-thumbnails",ROOT / "output/card-large")
 
     def translate(self, request_id, number, source):
-        self.translation_jobs.put((request_id, number, source))
+        if request_id == self.latest_request:
+            cached = self.translator.cached(source)
+            if cached:
+                self.events.translated.emit(request_id, number, cached)
+            else:
+                self.translation_jobs.put((request_id, number, source))
+
+    def cancel(self, request_id):
+        self.latest_request = request_id
+        self.query_card = None
+        self.jobs.cancel(request_id)
+        self.art_jobs.cancel(request_id)
+        while True:
+            try:
+                self.translation_jobs.get_nowait()
+            except queue.Empty:
+                break
 
     def background_jobs(self, jobs, kind):
         while not self.stop_event.is_set():
@@ -221,9 +240,12 @@ class Recognizer(threading.Thread):
             hwnd, _ = game_window(None)
         except RuntimeError:
             hwnd = None
+        failure = getattr(self.session, "error", None) if self.session and self.session.closed else None
         if self.session and (self.session.hwnd != hwnd or self.session.closed):
             self.session.stop()
             self.session = None
+        if failure:
+            raise RuntimeError(failure)
         if hwnd and not self.session:
             self.session = WindowCaptureSession(hwnd, .1)
 
@@ -314,6 +336,7 @@ class ReadingCard(QWidget):
         self.image_language = None
         self.printing_label = None
         self.original_printing = ""
+        self.pending_translations = set()
         self.compact_media = False
         self.text_labels = {}
         self.buttons = {}
@@ -335,6 +358,12 @@ class ReadingCard(QWidget):
         self.close_button.clicked.connect(self.dismissed.emit)
         header_layout.addWidget(self.close_button)
         self.outer.addWidget(self.header)
+        self.scroll = QScrollArea()
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setWidgetResizable(False)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.outer.addWidget(self.scroll)
 
     def content(self):
         self.image = None
@@ -344,7 +373,7 @@ class ReadingCard(QWidget):
         self.printing_label = None
         self.original_printing = ""
         if self.body:
-            self.outer.removeWidget(self.body)
+            self.scroll.takeWidget()
             self.body.hide()
             self.body.setParent(None)
             self.body.deleteLater()
@@ -352,11 +381,13 @@ class ReadingCard(QWidget):
         self.body_layout = QVBoxLayout(self.body)
         self.body_layout.setContentsMargins(0, 0, 0, 0)
         self.body_layout.setSpacing(4)
-        self.outer.addWidget(self.body)
+        self.scroll.setWidget(self.body)
         self.media = None
         self.rules = None
         self.rules_layout = None
         self.text_labels, self.buttons = {}, {}
+        self.english_labels = {}
+        self.pending_translations = set()
         self.sources = {}
         self.source_badge.setText("")
         self.setToolTip("")
@@ -379,7 +410,7 @@ class ReadingCard(QWidget):
         self.layout_revision += 1
         self.geometry_changed.emit()
 
-    def measure(self, width, image_height, font_size):
+    def measure(self, width, image_height, font_size, reserve=0):
         self.setFixedWidth(width)
         self.setStyleSheet(f"QWidget {{background:transparent;color:#dce6ed;font-size:{font_size}px;}}"
                           "QWidget#readingCard {background:#141f28;border:1px solid #344956;border-radius:10px;}"
@@ -390,7 +421,11 @@ class ReadingCard(QWidget):
                           "QPushButton#closeCard {background:transparent;color:#95aab7;border:0;"
                           "padding:0;font-size:19px;}"
                           "QPushButton#closeCard:hover {background:#293d49;color:#ffffff;}")
-        content_width = width-20
+        self.scroll.setStyleSheet("QScrollBar:vertical {background:#182831;width:8px;border:0;}"
+                                  "QScrollBar::handle:vertical {background:#4b626e;min-height:24px;border-radius:4px;}"
+                                  "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical {height:0;}"
+                                  "QScrollBar::add-page:vertical,QScrollBar::sub-page:vertical {background:none;}")
+        content_width = width-20-reserve
         image_width = 0
         has_rules = bool(self.text_labels or any(bold for label,bold in self.labels
                                                 if label.parent() is self.rules))
@@ -419,6 +454,7 @@ class ReadingCard(QWidget):
             styles = {
                 "title": f"font-size:{font_size+5}px;font-weight:700;color:#f0f5f8;",
                 "subtitle": f"font-size:{max(11,font_size-2)}px;color:#90a6b5;",
+                "english": f"font-size:{max(12,font_size-1)}px;color:#90a6b5;",
                 "section": f"font-size:{font_size}px;font-weight:600;color:#a9dece;",
                 "footer": "font-size:10px;color:#78919f;",
             }
@@ -448,8 +484,9 @@ class ReadingCard(QWidget):
             body_height = sum(widget.height() for widget in top_widgets)+media_height+len(top_widgets)*4
         else:
             body_height = sum(widget.height() for widget in visible)+max(0,len(visible)-1)*4
-        self.body.setFixedHeight(body_height)
+        self.body.setFixedSize(content_width, body_height)
         self.header.setFixedHeight(self.close_button.height())
+        self.scroll.setFixedSize(width-20, body_height)
         self.setFixedHeight(16+self.header.height()+4+body_height)
         self.outer.invalidate()
         self.outer.activate()
@@ -470,13 +507,14 @@ class ReadingCard(QWidget):
             for image_height in (420,350,280):
                 if self.measure(width,image_height,14) <= max_height:
                     return True
-        for font_size, image_height in ((13,280), (12,220)):
-            for width in widths:
-                height = self.measure(width, image_height, font_size)
-                if height <= max_height:
-                    return True
-        # 极小窗口无法容纳完整内容时仍保持文字完整，由摆放层使用屏幕范围。
-        return False
+        # 双语长文本保留正常字号，通过触控板/滚轮阅读，不再无限缩小文字。
+        width = min(500, max_width)
+        reserve = self.scroll.style().pixelMetric(QStyle.PixelMetric.PM_ScrollBarExtent)+4
+        self.measure(max(100, width), 220, 14, reserve=reserve)
+        viewport_height = max(40, max_height-16-self.header.height()-4)
+        self.scroll.setFixedHeight(viewport_height)
+        self.setFixedHeight(16+self.header.height()+4+viewport_height)
+        return self.height() <= max_height
 
     def loading(self, request_id, ready):
         self.request_id = request_id
@@ -496,14 +534,16 @@ class ReadingCard(QWidget):
             self.finish_content()
             return
         self.card_id = card["card_id"]
-        self.label(card.get("name_zh") or card["name_en"], True, "title")
+        self.add_name("name", card.get("name_zh"), card.get("name_en"), "", role="title")
         self.sources["name"] = self.chinese_mark(card.get("name_zh"), card.get("name_zh_source"))
-        self.label(f"{card['name_en']}   " + (f"HP {card['hp']}" if card.get("hp") else ""), role="subtitle")
+        if card.get("hp"):
+            self.label(f"HP {card['hp']}", role="subtitle")
         self.media = QWidget(self.body)
         self.media_layout = QBoxLayout(QBoxLayout.Direction.TopToBottom,self.media)
         self.media_layout.setContentsMargins(0,0,0,0)
         self.body_layout.addWidget(self.media)
         self.image = QLabel()
+        self.image.hide()
         self.image.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.media_layout.addWidget(self.image,0,Qt.AlignmentFlag.AlignTop|Qt.AlignmentFlag.AlignHCenter)
         self.body_widgets.append(self.image)
@@ -519,7 +559,8 @@ class ReadingCard(QWidget):
         for number, attack in enumerate(card.get("attacks", []), 1):
             self.sources[f"attack-{number}"] = self.chinese_mark(attack.get("name_zh"), attack.get("name_zh_source"))
             kind = "特性" if attack.get("kind") == "ability" else "招式"
-            self.label(f"{kind} · {attack.get('name_zh') or attack['name_en']}   {attack.get('damage') or ''}", True)
+            self.add_name(f"attack-{number}", attack.get('name_zh'), attack.get('name_en'),
+                          f"{kind} · ", suffix=f"   {attack.get('damage') or ''}")
             self.add_text(number, attack.get("text_zh"), attack.get("text_en"), attack.get("text_zh_source"))
         self.original_printing = f"{card['set_code']} · {card['number']}"
         self.printing_label = self.label(self.original_printing,role="footer")
@@ -530,16 +571,24 @@ class ReadingCard(QWidget):
     def chinese_mark(chinese, source):
         return ("译" if source == "local" else "中") if chinese else "EN"
 
+    def add_name(self, key, chinese, english, prefix, suffix="", role="section"):
+        self.text_labels[key] = self.label(prefix+(chinese or "翻译中……")+suffix, True, role)
+        self.english_labels[key] = self.label(english or "", role="subtitle")
+        if english and not chinese:
+            self.pending_translations.add(key)
+            self.translate(self.request_id, key, english)
+        self.text_labels[key].setProperty("prefix", prefix)
+        self.text_labels[key].setProperty("suffix", suffix)
+
     def add_text(self, number, chinese, english, source=None):
         if chinese or english:
-            self.text_labels[number] = self.label(readable_text(chinese or english))
+            self.text_labels[number] = self.label(readable_text(chinese) if chinese else "翻译中……")
+            if english:
+                self.english_labels[number] = self.label(readable_text(english, language="en"), role="english")
             self.sources[number] = self.chinese_mark(chinese, source)
         if english and not chinese:
-            button = QPushButton("翻译")
-            button.clicked.connect(lambda _=False, n=number, source=english: self.request_translation(n, source))
-            self.rules_layout.addWidget(button,0,Qt.AlignmentFlag.AlignRight)
-            self.body_widgets.append(button)
-            self.buttons[number] = button
+            self.pending_translations.add(number)
+            self.translate(self.request_id, number, english)
 
     def update_badge(self):
         present = set(self.sources.values())
@@ -554,26 +603,25 @@ class ReadingCard(QWidget):
         self.source_badge.setText(" · ".join(marks))
 
     def request_translation(self, number, source):
-        self.buttons[number].setText("翻译中……")
-        self.buttons[number].setEnabled(False)
-        self.finish_content()
         self.translate(self.request_id, number, source)
 
     def translated(self, request_id, number, text):
-        if request_id == self.request_id and number in self.buttons and self.sources.get(number) != "中":
+        if request_id == self.request_id and number in self.pending_translations:
+            self.pending_translations.remove(number)
             if text.startswith("翻译暂不可用"):
-                self.buttons[number].setText("重试")
-                self.buttons[number].setToolTip(text)
-                self.buttons[number].setEnabled(True)
+                self.text_labels[number].setText("中文翻译暂不可用")
+                self.text_labels[number].setToolTip(text)
             else:
-                self.text_labels[number].setText(text)
+                label = self.text_labels[number]
+                label.setText((label.property("prefix") or "")+text+(label.property("suffix") or ""))
                 self.sources[number] = "译"
                 self.update_badge()
-                self.buttons[number].hide()
             self.finish_content()
 
     def set_art_pixmap(self, pixmap):
         self.art_pixmap = pixmap
+        if self.image is not None:
+            self.image.show()
         self.update_badge()
         if not self.building:
             self.finish_content()
@@ -587,8 +635,7 @@ class ReadingCard(QWidget):
                 if payload.get("chinese_effect") and 0 in self.text_labels:
                     self.text_labels[0].setText(readable_text(payload["chinese_effect"]))
                     self.sources[0] = "中"
-                    if 0 in self.buttons:
-                        self.buttons[0].hide()
+                    self.pending_translations.discard(0)
                 if self.printing_label and payload.get("language")=="简中":
                     self.printing_label.setText(f"{payload.get('set','')} · {payload.get('printing','')}")
                 elif self.printing_label:
@@ -602,11 +649,11 @@ class Overlay(QObject):
         self.app, self.args = app, args
         try:
             self.settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
-            shortcut_keys(self.settings["shortcut"])
+            get_backend().validate_shortcut(self.settings["shortcut"])
             if self.settings["button"] not in ("left", "right"):
                 raise ValueError("鼠标键无效")
         except (OSError, ValueError, KeyError, TypeError):
-            self.settings = {"shortcut": "Ctrl+Alt", "button": "right"}
+            self.settings = {"shortcut": "Ctrl+Option" if sys.platform == "darwin" else "Ctrl+Alt", "button": "right"}
         self.events = Events()
         self.worker = Recognizer(self.events, args)
         self.image_preference = self.settings.get("image_preference","zh")
@@ -624,12 +671,20 @@ class Overlay(QObject):
         self.events.status.connect(self.status, Qt.ConnectionType.QueuedConnection)
         self.events.ready.connect(self.start_hook, Qt.ConnectionType.QueuedConnection)
         self.keep_in_game = bool(self.settings.get("keep_in_game", True))
+        self.mode = self.settings.get("mode", "hover")
+        if self.mode not in ("hover", "click"):
+            self.mode = "hover"
+        try:
+            self.hover_delay = max(.3, min(2., float(self.settings.get("hover_delay", .6))))
+        except (TypeError, ValueError):
+            self.hover_delay = .6
         self.settings = {key: self.settings[key] for key in ("shortcut", "button")}
-        self.hook = MouseTrigger(self.freeze_click, self.events.status.emit, **self.settings,
-                                 dismiss_callback=self.events.dismissed.emit)
+        self.hook = self.make_hook()
         self.hook.popup_hwnd = int(self.popup.winId())
         self.request_id = 0
+        self.hold_epoch = None
         self.wanted = False
+        self.popup_box = None
         self.target_relative = None
         self.positioning = False
         self.last_placement = None
@@ -658,12 +713,26 @@ class Overlay(QObject):
         self.status("正在准备游戏内快捷查询")
         self.tray.showMessage("PTCGLens", self.instruction(), QSystemTrayIcon.MessageIcon.Information, 5000)
 
+    def make_hook(self):
+        if self.mode == "hover":
+            hook = HoverTrigger(self.freeze_hover, self.events.status.emit,
+                shortcut=self.settings["shortcut"], delay=self.hover_delay,
+                dismiss_callback=self.events.dismissed.emit)
+        else:
+            hook = MouseTrigger(self.freeze_click, self.events.status.emit, **self.settings,
+                dismiss_callback=self.events.dismissed.emit)
+        hook.popup_contains = lambda point: bool(self.popup_box and self.popup_box[0] <= point[0] < self.popup_box[2]
+                                                 and self.popup_box[1] <= point[1] < self.popup_box[3])
+        return hook
+
     def instruction(self):
+        if self.mode == "hover":
+            return f"按住 {self.settings['shortcut']}，悬停 {self.hover_delay:g} 秒查询；松开关闭"
         return self.settings["shortcut"] + "+鼠标" + ("右键" if self.settings["button"] == "right" else "左键")
 
     @Slot()
     def start_hook(self):
-        if not self.worker.stop_event.is_set():
+        if not self.worker.stop_event.is_set() and self.hook.ident is None and not self.hook.stop_event.is_set():
             self.hook.start()
 
     def status(self, text):
@@ -679,7 +748,12 @@ class Overlay(QObject):
         if self.args.diagnose_input and self.hook.last_click != self.last_input_diagnostic:
             self.last_input_diagnostic = self.hook.last_click
             print(f"输入诊断：{self.last_input_diagnostic}", flush=True)
-        active = user32.GetForegroundWindow() == self.hook.hwnd and self.hook.hwnd is not None
+        active = is_foreground(self.hook.hwnd)
+        if self.mode == "hover" and self.wanted and (not active or not self.hook.valid(self.hold_epoch)):
+            self.dismiss()
+        elif self.mode == "click" and not active and self.wanted:
+            # 组合点击保留原有切回游戏后恢复浮卡的行为。
+            self.popup.hide()
         self.hook.dismiss_enabled = self.wanted and active
         if self.wanted and active and self.target_relative:
             self.reposition()
@@ -688,7 +762,14 @@ class Overlay(QObject):
             self.popup.hide()
         elif not self.popup.isVisible():
             self.wanted = False
-        self.hook.outside_dismiss_enabled = self.wanted and self.popup.isVisible()
+        if self.popup.isVisible():
+            # 后端输入线程不读取 Qt 对象，只读取主线程发布的不可变坐标。
+            r = self.popup.geometry()
+            self.popup_box = get_backend().popup_bounds(int(self.popup.winId()),
+                (r.x(), r.y(), r.x()+r.width(), r.y()+r.height()))
+        else:
+            self.popup_box = None
+        self.hook.outside_dismiss_enabled = self.mode == "click" and self.wanted and self.popup.isVisible()
         if self.wanted and self.popup.isVisible() and self.popup.card_id:
             now = time.monotonic()
             if now >= self.next_art_refresh:
@@ -696,12 +777,22 @@ class Overlay(QObject):
                 self.worker.art_jobs.put((self.request_id,self.popup.card_id))
 
     def dismiss(self):
+        self.request_id += 1
+        self.worker.cancel(self.request_id)
+        self.popup.request_id = self.request_id
+        self.hold_epoch = None
+        if self.mode == "hover":
+            self.hook.invalidate()
+        self.popup_box = None
         self.wanted = False
         self.hook.dismiss_enabled = False
         self.hook.outside_dismiss_enabled = False
         self.popup.hide()
 
-    def freeze_click(self, x, y):
+    def freeze_hover(self, x, y, epoch):
+        self.freeze_click(x, y, hold_epoch=epoch)
+
+    def freeze_click(self, x, y, hold_epoch=None):
         """钩子线程只取不可变帧引用和坐标，匹配及 UI 交给各自线程。"""
         started = time.perf_counter()
         hwnd = self.hook.hwnd
@@ -718,10 +809,13 @@ class Overlay(QObject):
             error = str(exc)
         if bbox is not None:
             self.events.clicked.emit({"point": (x, y), "bbox": bbox, "screenshot": screenshot,
-                                      "started": started, "capture_error": error})
+                                      "started": started, "capture_error": error, "hold_epoch": hold_epoch})
 
     @Slot(object)
     def query(self, request):
+        if self.mode == "hover" and not self.hook.valid(request.get("hold_epoch")):
+            return
+        self.hold_epoch = request.get("hold_epoch")
         x, y = request["point"]
         self.query_started = request["started"]
         self.request_id += 1
@@ -731,17 +825,22 @@ class Overlay(QObject):
         self.wanted = True
         self.hook.dismiss_enabled = True
         self.popup.show()
-        self.hook.outside_dismiss_enabled = True
+        self.hook.outside_dismiss_enabled = self.mode == "click"
         self.worker.query(self.request_id, request)
 
     @Slot(object)
     def answer(self, payload):
-        if payload["id"] != self.request_id:
+        if payload["id"] != self.request_id or not self.wanted:
+            return
+        if self.mode == "hover" and not self.hook.valid(self.hold_epoch):
+            self.dismiss()
             return
         if "result" in payload:
             height, width = payload["shape"]
             box = payload["result"]["box"]
             self.target_relative = relative_rect(box, (0,0,width,height))
+            if self.mode == "hover" and self.hook.bbox:
+                self.hook.set_target(restore_rect(self.target_relative, self.hook.bbox))
         self.popup.show_result(payload)
         self.reposition()
         self.status(f"本次查询已完成：{payload.get('elapsed', '—')} ms")
@@ -797,7 +896,17 @@ class Overlay(QObject):
         buttons = QComboBox()
         buttons.addItems(["鼠标右键", "鼠标左键"])
         buttons.setCurrentIndex(0 if self.settings["button"] == "right" else 1)
-        form.addRow("同时点击", buttons)
+        modes = QComboBox()
+        modes.addItems(["按住快捷键并悬停（松开关闭）", "组合键加点击（再次查询或关闭）"])
+        modes.setCurrentIndex(0 if self.mode == "hover" else 1)
+        form.addRow("查询方式", modes)
+        delay = QDoubleSpinBox()
+        delay.setRange(.3, 2.)
+        delay.setSingleStep(.1)
+        delay.setValue(self.hover_delay)
+        delay.setSuffix(" 秒")
+        form.addRow("悬停时间", delay)
+        form.addRow("点击模式的鼠标键", buttons)
         inside = QCheckBox("优先保持在游戏窗口内")
         inside.setChecked(self.keep_in_game)
         form.addRow(inside)
@@ -805,26 +914,35 @@ class Overlay(QObject):
         images.addItems(["优先简中卡面","优先英文高清原卡","仅本地游戏缓存"])
         images.setCurrentIndex(("zh","en","local").index(self.image_preference))
         form.addRow("卡图来源",images)
-        hint = QLabel("例如 Ctrl+Alt 或 Ctrl+Shift+Q。\n查询点击会被拦截，普通点击仍交给游戏。")
+        hint = QLabel("例如 Ctrl+Alt（Mac 为 Ctrl+Option）或 Ctrl+Shift+Q。\n悬停模式无需点击；点击模式仅拦截查询点击。")
         form.addRow(hint)
         actions = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         form.addRow(actions)
         def save():
             try:
-                shortcut_keys(shortcut.text())
+                get_backend().validate_shortcut(shortcut.text())
             except ValueError as exc:
                 hint.setText(str(exc))
                 return
+            self.dismiss()
+            previous_hook = self.hook
+            previous_hook.stop()
+            if previous_hook.ident is not None:
+                previous_hook.join(timeout=2)
+            self.mode = "hover" if modes.currentIndex() == 0 else "click"
+            self.hover_delay = delay.value()
             self.settings = {"shortcut": shortcut.text().strip(), "button": "right" if buttons.currentIndex() == 0 else "left"}
             self.keep_in_game = inside.isChecked()
             self.image_preference = ("zh","en","local")[images.currentIndex()]
             self.worker.image_sources.preference = self.image_preference
             self.next_art_refresh = 0
             SETTINGS.parent.mkdir(parents=True, exist_ok=True)
-            SETTINGS.write_text(json.dumps({**self.settings, "keep_in_game": self.keep_in_game,
-                                           "image_preference":self.image_preference},
-                                           ensure_ascii=False, indent=2), encoding="utf-8")
-            self.hook.configure(**self.settings)
+            write_json_atomic(SETTINGS, {**self.settings, "keep_in_game": self.keep_in_game,
+                "image_preference": self.image_preference, "mode": self.mode, "hover_delay": self.hover_delay})
+            self.hook = self.make_hook()
+            self.hook.popup_hwnd = int(self.popup.winId())
+            if self.worker.ready:
+                self.hook.start()
             self.reposition()
             self.status("查询快捷键已更新")
             dialog.accept()
@@ -852,6 +970,10 @@ def main(argv=None):
     if not (ROOT / "output/index/manifest.json").is_file() or not (ROOT / "output/card-data.json").is_file():
         parser.error("尚未建立索引；请先运行 uv run python cache_watch.py --once")
     set_dpi_awareness()
+    missing = check_permissions(input_required=True, request=True)
+    if missing:
+        parser.error("；".join(missing))
+    plugin_directory = prepare_qt_plugins()
     app = QApplication(sys.argv[:1])
     configure_font(app)
     app.setQuitOnLastWindowClosed(False)

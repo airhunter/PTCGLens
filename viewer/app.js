@@ -10,11 +10,11 @@ function statusName(status) {
   return {matched: "已匹配", tentative: "待确认", unknown: "待确认", empty: "空位", occluded: "被遮挡"}[status] || status;
 }
 
-function displayText(value) {
+function displayText(value, language = "zh") {
   const energy = {grass: "草", fire: "火", water: "水", lightning: "雷", psychic: "超",
     fighting: "斗", darkness: "恶", metal: "钢", colorless: "无色", dragon: "龙"};
   return String(value || "")
-    .replace(/<sprite name="([^"]+)"[^>]*>/g, (_, name) => `[${energy[name] || name}]`)
+    .replace(/<sprite name="([^"]+)"[^>]*>/g, (_, name) => `[${language === "en" ? name : (energy[name] || name)}]`)
     .replace(/<br\s*\/?\s*>/gi, "\n")
     .replace(/<[^>]+>/g, "");
 }
@@ -32,61 +32,44 @@ function translationKey(cardId, field, index) {
 }
 
 function updateTranslationWidget(widget, key) {
-  const button = widget.querySelector("button");
-  const output = widget.querySelector(".translation-output");
   const result = translations.get(key);
-  button.hidden = Boolean(result);
-  button.disabled = pendingTranslations.has(key);
-  button.textContent = pendingTranslations.has(key) ? "翻译中…" : "翻译";
-  output.classList.toggle("error", translationErrors.has(key));
-  output.textContent = result
-    ? `${result.source === "local" ? "本地中文" : "机器翻译（仅供参考）"}\n${result.translation}`
-    : (translationErrors.get(key) || "");
+  widget.classList.toggle("error", translationErrors.has(key));
+  widget.textContent = result
+    ? `${result.source === "local" ? "" : "机器翻译 · "}${displayText(result.translation)}`
+    : (translationErrors.get(key) || "翻译中……");
 }
 
 function syncTranslationWidgets(key) {
-  document.querySelectorAll(".translation-action").forEach((widget) => {
+  document.querySelectorAll("[data-translation-key]").forEach((widget) => {
     if (widget.dataset.translationKey === key) updateTranslationWidget(widget, key);
   });
 }
 
-function appendTranslateButton(parent, cardId, field, index = null) {
-  const key = translationKey(cardId, field, index);
-  const widget = document.createElement("div");
-  widget.className = "translation-action";
-  widget.dataset.translationKey = key;
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "translate-button";
-  button.textContent = "翻译";
-  const output = document.createElement("div");
-  output.className = "translation-output";
-  widget.append(button, output);
-  parent.append(widget);
-  button.addEventListener("click", async () => {
-    if (pendingTranslations.has(key) || translations.has(key)) return;
-    translationErrors.delete(key);
-    const request = fetch("/api/translate", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({card_id: cardId, field, index}),
-    }).then(async (response) => {
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
-      return data;
-    });
-    pendingTranslations.set(key, request);
-    syncTranslationWidgets(key);
-    try {
-      translations.set(key, await request);
-    } catch (error) {
-      translationErrors.set(key, `翻译失败：${error.message}`);
-    } finally {
-      pendingTranslations.delete(key);
-      syncTranslationWidgets(key);
+function appendBilingual(parent, chinese, english, cardId, field, index = null,
+                         chineseClass = "move-text", englishClass = "english-rule") {
+  if (chinese) {
+    appendText(parent, chineseClass, displayText(chinese));
+  } else if (english) {
+    const key = `${translationKey(cardId, field, index)}:${english}`;
+    const widget = appendText(parent, `${chineseClass} translation-output`, "翻译中……");
+    widget.dataset.translationKey = key;
+    updateTranslationWidget(widget, key);
+    if (!translations.has(key) && !pendingTranslations.has(key) && !translationErrors.has(key)) {
+      const request = fetch("/api/translate", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({card_id: cardId, field, index, expected_source: english}),
+      }).then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+        return data;
+      });
+      pendingTranslations.set(key, request);
+      request.then((data) => translations.set(key, data))
+        .catch((error) => translationErrors.set(key, `中文翻译暂不可用：${error.message}`))
+        .finally(() => { pendingTranslations.delete(key); syncTranslationWidgets(key); });
     }
-  });
-  updateTranslationWidget(widget, key);
+  }
+  if (english) appendText(parent, englishClass, displayText(english, "en"));
 }
 
 function setCardView(view) {
@@ -96,7 +79,7 @@ function setCardView(view) {
   $("view-zh").classList.toggle("active", chinese);
   $("view-original").classList.toggle("active", !chinese);
   $("large-caption").textContent = chinese
-    ? "依据本地卡图与翻译资料生成的中文阅读版"
+    ? "依据本地卡图与资料生成的中英双语阅读版"
     : "游戏本地缓存原图，卡面文字为英文";
 }
 
@@ -105,52 +88,41 @@ function renderLocalizedCard(card, slot) {
   container.replaceChildren();
   const top = document.createElement("div");
   top.className = "zh-card-top";
-  appendText(top, "zh-card-edition", "PTCGLens · 简体中文阅读版");
+  appendText(top, "zh-card-edition", "PTCGLens · 中英双语阅读版");
   const row = document.createElement("div");
   row.className = "zh-card-name-row";
-  appendText(row, "zh-card-name", card.name_zh || card.name_en || slot.name_en || slot.card_id);
+  const names = document.createElement("div");
+  appendBilingual(names, card.name_zh, card.name_en || slot.name_en,
+    slot.card_id, "card_name", null, "zh-card-name", "zh-english");
+  row.append(names);
   if (card.hp) appendText(row, "zh-card-hp", `${card.hp} HP`);
   top.append(row);
   container.append(top);
   const art = document.createElement("img");
   art.className = "zh-card-art";
   art.alt = `${card.name_zh || card.name_en || slot.card_id} 插画`;
-  art.onerror = () => {
-    art.onerror = null;
-    art.src = `/api/card-image/${encodeURIComponent(slot.card_id)}`;
-  };
+  art.onerror = () => { art.onerror = null; art.src = `/api/card-image/${encodeURIComponent(slot.card_id)}`; };
   art.src = `/api/card-art/${encodeURIComponent(slot.card_id)}`;
   container.append(art);
   const body = document.createElement("div");
   body.className = "zh-card-body";
-  appendText(body, "zh-card-label", `${card.set_code || ""} ${card.number || ""} · ${card.name_en || slot.name_en || ""}`);
+  appendText(body, "zh-card-label", `${card.set_code || ""} ${card.number || ""}`);
   if (card.card_text_en || card.card_text_zh) {
     const section = document.createElement("div");
     section.className = "zh-move";
     appendText(section, "zh-move-kind", "卡牌效果");
-    appendText(section, "zh-move-text", displayText(card.card_text_zh || card.card_text_en));
-    if (!card.card_text_zh) appendText(section, "zh-fallback", "此效果暂无本地简体中文对照");
-    if (card.card_text_en && !card.card_text_zh) appendTranslateButton(section, slot.card_id, "card_text");
+    appendBilingual(section, card.card_text_zh, card.card_text_en, slot.card_id,
+      "card_text", null, "zh-move-text", "zh-english");
     body.append(section);
   }
-  for (const [attackIndex, attack] of (card.attacks || []).entries()) {
+  for (const [index, attack] of (card.attacks || []).entries()) {
     const section = document.createElement("div");
     section.className = "zh-move";
-    appendText(section, "zh-move-kind", attack.kind === "ability" ? "特性" : "招式");
-    const head = document.createElement("div");
-    head.className = "zh-move-head";
-    appendText(head, "", attack.name_zh || attack.name_en || "未命名");
-    if (attack.damage) appendText(head, "", attack.damage);
-    section.append(head);
-    if (attack.text_zh || attack.text_en) {
-      appendText(section, "zh-move-text", displayText(attack.text_zh || attack.text_en));
-    }
-    if (!attack.name_zh || (attack.text_en && !attack.text_zh)) {
-      appendText(section, "zh-fallback", "部分文字保留英文，暂无本地简体中文对照");
-    }
-    if (attack.text_en && !attack.text_zh) {
-      appendTranslateButton(section, slot.card_id, "attack_text", attackIndex);
-    }
+    appendText(section, "zh-move-kind", `${attack.kind === "ability" ? "特性" : "招式"}${attack.damage ? ` · ${attack.damage}` : ""}`);
+    appendBilingual(section, attack.name_zh, attack.name_en, slot.card_id,
+      "attack_name", index, "zh-move-head", "zh-english");
+    appendBilingual(section, attack.text_zh, attack.text_en, slot.card_id,
+      "attack_text", index, "zh-move-text", "zh-english");
     body.append(section);
   }
   appendText(body, "zh-card-foot", "此为便于阅读的重排版本，不是官方中文印刷卡面。");
@@ -179,50 +151,29 @@ function openLargeCard(key) {
   setCardView("zh");
   const info = $("large-card-info");
   info.replaceChildren();
-  appendText(info, `card-name ${card.name_zh ? "" : "missing"}`, card.name_zh || card.name_en || slot.name_en || slot.card_id);
-  if (card.name_zh && card.name_en) appendText(info, "english-name", card.name_en);
+  appendBilingual(info, card.name_zh, card.name_en || slot.name_en, slot.card_id,
+    "card_name", null, "card-name", "english-name");
   const meta = document.createElement("div");
   meta.className = "meta";
   for (const item of [card.hp ? `${card.hp} HP` : null,
-    card.set_code && card.number ? `${card.set_code} · ${card.number}` : null,
-    slot.status === "tentative" ? "识别待确认" : null]) {
-    if (!item) continue;
-    const badge = document.createElement("span");
-    badge.textContent = item;
-    meta.append(badge);
+    card.set_code && card.number ? `${card.set_code} · ${card.number}` : null]) {
+    if (item) appendText(meta, "", item);
   }
   info.append(meta);
-  appendText(info, "translation-note", "优先显示本地中文对照；缺失时可点击翻译，机器译文仅供参考。左侧可切换中文阅读版与游戏原卡。");
+  appendText(info, "translation-note", "中英逐项对照；缺失中文时自动翻译，机器译文仅供参考。");
   if (card.card_text_zh || card.card_text_en) {
     const effect = document.createElement("section");
     effect.className = "move";
     appendText(effect, "move-kind", "卡牌效果");
-    appendText(effect, "move-text", displayText(card.card_text_zh || card.card_text_en));
-    if (!card.card_text_zh) appendText(effect, "fallback", "效果文本暂无简体中文对照");
-    if (card.card_text_en && !card.card_text_zh) appendTranslateButton(effect, slot.card_id, "card_text");
+    appendBilingual(effect, card.card_text_zh, card.card_text_en, slot.card_id, "card_text");
     info.append(effect);
   }
-  if (!(card.attacks || []).length && !card.card_text_en) {
-    appendText(info, "no-moves", "这张卡在当前本地资料中没有可显示的招式文本。");
-  }
-  for (const [attackIndex, attack] of (card.attacks || []).entries()) {
+  for (const [index, attack] of (card.attacks || []).entries()) {
     const section = document.createElement("section");
     section.className = "move";
-    const head = document.createElement("div");
-    head.className = "move-head";
-    appendText(head, "move-kind", attack.kind === "ability" ? "特性" : "招式");
-    if (attack.damage) appendText(head, "move-kind", `${attack.damage} 伤害`);
-    section.append(head);
-    appendText(section, `move-title ${attack.name_zh ? "" : "missing"}`, attack.name_zh || attack.name_en || "未命名");
-    if (attack.name_zh && attack.name_en) appendText(section, "move-en", attack.name_en);
-    else if (attack.name_en) appendText(section, "fallback", "招式名暂无简体中文对照");
-    if (attack.text_zh || attack.text_en) {
-      appendText(section, "move-text", displayText(attack.text_zh || attack.text_en));
-      if (!attack.text_zh) appendText(section, "fallback", "效果文本暂无简体中文对照");
-      if (attack.text_en && !attack.text_zh) {
-        appendTranslateButton(section, slot.card_id, "attack_text", attackIndex);
-      }
-    }
+    appendText(section, "move-kind", `${attack.kind === "ability" ? "特性" : "招式"}${attack.damage ? ` · ${attack.damage}` : ""}`);
+    appendBilingual(section, attack.name_zh, attack.name_en, slot.card_id, "attack_name", index, "move-title", "move-en");
+    appendBilingual(section, attack.text_zh, attack.text_en, slot.card_id, "attack_text", index);
     info.append(section);
   }
   if (!dialog.open) dialog.showModal();
@@ -251,7 +202,9 @@ function selectSlot(key) {
     const card = latest.cards[slot.card_id] || {};
     const names = document.createElement("div");
     names.className = "detail";
-    names.textContent = `${slot.name_zh || slot.name_en}${slot.name_zh ? ` · ${slot.name_en}` : ""}${card.hp ? ` · ${card.hp} HP` : ""}`;
+    appendBilingual(names, card.name_zh || slot.name_zh, card.name_en || slot.name_en,
+      slot.card_id, "card_name", null, "detail", "detail secondary");
+    if (card.hp) appendText(names, "detail", `HP ${card.hp}`);
     panel.append(names);
     if (card.set_code) {
       const code = document.createElement("div");
@@ -259,27 +212,14 @@ function selectSlot(key) {
       code.textContent = `${card.set_code} ${card.number || ""} · ${slot.card_id}`;
       panel.append(code);
     }
-    if (card.card_text_zh || card.card_text_en) {
-      const effect = document.createElement("div");
-      effect.className = "detail secondary";
-      effect.textContent = displayText(card.card_text_zh || card.card_text_en);
-      panel.append(effect);
-      if (card.card_text_en && !card.card_text_zh) appendTranslateButton(panel, slot.card_id, "card_text");
-    }
-    for (const [attackIndex, attack] of (card.attacks || []).entries()) {
-      const line = document.createElement("div");
-      line.className = "detail";
-      line.textContent = `${attack.kind === "ability" ? "特性" : "招式"} · ${attack.name_zh || attack.name_en}${attack.damage ? ` · ${attack.damage}` : ""}`;
-      panel.append(line);
-      if (attack.text_zh || attack.text_en) {
-        const text = document.createElement("div");
-        text.className = "detail secondary";
-        text.textContent = displayText(attack.text_zh || attack.text_en);
-        panel.append(text);
-        if (attack.text_en && !attack.text_zh) {
-          appendTranslateButton(panel, slot.card_id, "attack_text", attackIndex);
-        }
-      }
+    appendBilingual(panel, card.card_text_zh, card.card_text_en, slot.card_id,
+      "card_text", null, "detail", "detail secondary");
+    for (const [index, attack] of (card.attacks || []).entries()) {
+      appendText(panel, "detail", `${attack.kind === "ability" ? "特性" : "招式"}${attack.damage ? ` · ${attack.damage}` : ""}`);
+      appendBilingual(panel, attack.name_zh, attack.name_en, slot.card_id,
+        "attack_name", index, "detail", "detail secondary");
+      appendBilingual(panel, attack.text_zh, attack.text_en, slot.card_id,
+        "attack_text", index, "detail", "detail secondary");
     }
   } else {
     const note = document.createElement("div");

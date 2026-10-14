@@ -5,7 +5,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-import window_capture
+from windows_backend_fixture import load_windows_module
+window_capture = load_windows_module("capture")
 
 
 class FakeControl:

@@ -30,6 +30,12 @@ class LatestJobQueue:
     def get_nowait(self):
         return self.get(timeout=0)
 
+    def cancel(self, request_id):
+        with self.condition:
+            self.latest_id = max(self.latest_id, request_id)
+            if self.pending is not None and self.pending[0] < request_id:
+                self.pending = None
+
     def qsize(self):
         with self.condition:
             return int(self.pending is not None)

@@ -10,6 +10,7 @@ import re
 import struct
 import subprocess
 from pathlib import Path
+from platform_backend.paths import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE
 
 from atomic_json import read_json_retry, write_json_atomic
 from local_chinese import LOCAL_CHINESE_PATH, coverage_report, load_local_chinese, resolve_chinese
@@ -240,7 +241,7 @@ def build_card_data(index_dir: Path, game_cache: Path, translation_root: Path, o
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--index-dir", type=Path, default=Path("output/index"))
-    parser.add_argument("--game-cache", type=Path, default=Path.home() / "AppData/LocalLow/pokemon/Pokemon TCG Live/config-cache")
+    parser.add_argument("--game-cache", type=Path, default=DEFAULT_DATABASE_CACHE)
     parser.add_argument("--translation-root", type=Path, default=Path(".tmp/ptcg-live-zh-mod/databases_zh-CN"))
     parser.add_argument("--output", type=Path, default=Path("output/card-data.json"))
     parser.add_argument("--coverage-report", type=Path, default=Path("output/chinese-coverage.json"))

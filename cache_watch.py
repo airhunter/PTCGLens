@@ -6,6 +6,7 @@ import argparse
 import json
 import time
 from pathlib import Path
+from platform_backend.paths import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE
 
 from battle_multi import build_visual_index
 from cache_search import update_index
@@ -14,8 +15,6 @@ from local_chinese import LOCAL_CHINESE_PATH
 from atomic_json import write_json_atomic
 
 
-DEFAULT_CARD_CACHE = Path.home() / "AppData/LocalLow/Unity/pokemon_Pokemon TCG Live"
-DEFAULT_DATABASE_CACHE = Path.home() / "AppData/LocalLow/pokemon/Pokemon TCG Live/config-cache"
 
 
 def metadata_is_stale(card_data_path: Path, game_cache: Path, translation_root: Path) -> bool:

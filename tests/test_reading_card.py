@@ -9,11 +9,13 @@ from PySide6.QtCore import QBuffer, QIODevice
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QScrollArea
 
 from overlay_app import ReadingCard, configure_font
+from qt_runtime import prepare_qt_plugins
 
 
 class ReadingCardTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.plugin_directory = prepare_qt_plugins()
         cls.app = QApplication.instance() or QApplication([])
         configure_font(cls.app)
 
@@ -36,23 +38,30 @@ class ReadingCardTest(unittest.TestCase):
         self.assertIn("正在识别", self.popup.labels[0][0].text())
         self.popup.set_art(1, b"not an image")
 
-    def test_ability_and_attack_and_translation_are_available(self):
+    def test_automatic_translation_preserves_english_and_ignores_old_results(self):
+        self.card["attacks"][0]["text_en"] = "Original ability rule."
         self.popup.show_result({"id": 2, "card": self.card, "elapsed": 200})
         text = "\n".join(label.text() for label in self.popup.findChildren(QLabel))
-        for expected in ("测试卡", "HP 100", "特性 · 特性名称", "招式 · Attack", "30", "特性效果"):
+        for expected in ("测试卡", "Test card", "HP 100", "特性 · 特性名称", "Ability", "Attack", "30", "特性效果", "Original ability rule."):
             self.assertIn(expected, text)
-        self.popup.request_translation(2, "English rule text.")
-        self.assertEqual(self.requests, [(2, 2, "English rule text.")])
+        self.assertEqual(self.requests, [(2, "attack-2", "Attack"), (2, 2, "English rule text.")])
+        self.assertFalse(self.popup.buttons)
         self.popup.translated(1, 2, "旧查询译文")
-        self.assertEqual(self.popup.text_labels[2].text(), "English rule text.")
-        self.popup.translated(2, 2, "翻译暂不可用：offline")
-        self.assertEqual(self.popup.text_labels[2].text(), "English rule text.")
-        self.assertTrue(self.popup.buttons[2].isEnabled())
-        self.assertEqual(self.popup.source_badge.text(), "中 · EN")
+        self.assertEqual(self.popup.text_labels[2].text(), "翻译中……")
         self.popup.translated(2, 2, "中文效果")
         self.assertEqual(self.popup.text_labels[2].text(), "中文效果")
+        self.assertEqual(self.popup.english_labels[2].text(), "English rule text.")
         self.assertEqual(self.popup.source_badge.text(), "中 · EN · 译")
-        self.assertTrue(self.popup.buttons[2].isHidden())
+        self.popup.translated(2, "attack-2", "招式名称")
+        self.assertIn("招式 · 招式名称", self.popup.text_labels["attack-2"].text())
+        self.assertEqual(self.popup.english_labels["attack-2"].text(), "Attack")
+
+    def test_failed_translation_keeps_english_and_has_no_retry_button(self):
+        self.popup.show_result({"id": 2, "card": self.card})
+        self.popup.translated(2, 2, "翻译暂不可用：offline")
+        self.assertEqual(self.popup.text_labels[2].text(), "中文翻译暂不可用")
+        self.assertEqual(self.popup.english_labels[2].text(), "English rule text.")
+        self.assertFalse(self.popup.buttons)
 
     def test_unconfirmed_result_does_not_show_card_details(self):
         self.popup.show_result({"id": 2, "result": {"status": "tentative", "card_id": "test_en_001"}})
@@ -71,7 +80,7 @@ class ReadingCardTest(unittest.TestCase):
     def assert_content_fully_visible(self):
         self.popup.show()
         self.app.processEvents()
-        self.assertFalse(self.popup.findChildren(QScrollArea))
+        self.assertEqual(self.popup.scroll.verticalScrollBar().maximum(), 0)
         for label,_ in self.popup.labels:
             self.assertGreaterEqual(label.height(),label.heightForWidth(label.width()))
             origin = label.mapTo(self.popup,label.rect().bottomRight())
@@ -100,7 +109,8 @@ class ReadingCardTest(unittest.TestCase):
         for removed in ("Esc", "ESC", "中文阅读", "对照缺失", "本次识别", "987", "仅供参考", "本次查询"):
             self.assertNotIn(removed, text)
         self.assertEqual(self.popup.close_button.text(), "×")
-        self.assertEqual(self.popup.buttons[2].text(), "翻译")
+        self.assertFalse(self.popup.buttons)
+        self.assertEqual([b.text() for b in self.popup.findChildren(QPushButton)], ["×"])
 
     def test_whole_card_keeps_edges_in_thumbnail_and_large_image(self):
         image = QImage(240,336,QImage.Format.Format_RGB32)
@@ -153,7 +163,7 @@ class ReadingCardTest(unittest.TestCase):
             self.assert_content_fully_visible()
             self.assertGreater(self.popup.rules.x(),self.popup.image.x()+self.popup.image.width())
             self.assertGreaterEqual(self.popup.rules.width(),150)
-            self.assertLess(self.popup.buttons[2].width(),self.popup.rules.width()/2)
+            self.assertFalse(self.popup.buttons)
             self.popup.translated(2,2,"选择自己牌库中的一张宝可梦，加入手牌，然后重洗牌库。"*4)
             self.assert_content_fully_visible()
             large = QPixmap(686,962)
@@ -166,6 +176,25 @@ class ReadingCardTest(unittest.TestCase):
                 bottom = widget.mapTo(self.popup,widget.rect().bottomRight())
                 self.assertLess(bottom.x(),self.popup.width())
                 self.assertLess(bottom.y(),self.popup.height())
+
+    def test_long_bilingual_rules_scroll_without_clipping_or_tiny_fonts(self):
+        self.card["attacks"][1].update(text_en="Search your deck and put a card into your hand. "*30,
+                                       text_zh="从牌库中选择一张卡牌加入手牌，然后重洗牌库。"*30)
+        self.popup.show_result({"id":2,"card":self.card})
+        self.assertTrue(self.popup.fit_to_area(500,400))
+        self.popup.show()
+        self.app.processEvents()
+        self.assertLessEqual(self.popup.height(),400)
+        self.assertEqual(self.popup.scroll.horizontalScrollBar().maximum(),0)
+        bar = self.popup.scroll.verticalScrollBar()
+        self.assertGreater(bar.maximum(),0)
+        bar.setValue(bar.maximum())
+        self.app.processEvents()
+        last = self.popup.printing_label
+        bottom = last.mapTo(self.popup.scroll.viewport(),last.rect().bottomRight())
+        self.assertLess(bottom.y(),self.popup.scroll.viewport().height())
+        self.assertIn("font-size:13px",self.popup.english_labels[2].styleSheet())
+        self.assertEqual(self.requests, [(2,"attack-2","Attack")])
 
     def chinese_image_payload(self):
         image = QImage(600,825,QImage.Format.Format_RGB32)
@@ -181,7 +210,8 @@ class ReadingCardTest(unittest.TestCase):
         self.popup.show_result({"id":2,"card":self.card})
         self.popup.set_art(2,self.chinese_image_payload())
         self.assertIn("选择自己牌库",self.popup.text_labels[0].text())
-        self.assertTrue(self.popup.buttons[0].isHidden())
+        self.assertNotIn(0, self.popup.pending_translations)
+        self.assertEqual(self.popup.english_labels[0].text(), "English rule")
         self.assertIn("中图",self.popup.source_badge.text())
         self.assertEqual(self.popup.printing_label.text(),"CSV · 001/100")
         self.popup.translated(2,0,"晚到的机器译文")
@@ -191,7 +221,7 @@ class ReadingCardTest(unittest.TestCase):
         self.card.update(hp=0,attacks=[],card_text_en="English rule")
         self.popup.show_result({"id":2,"card":self.card})
         self.popup.set_art(1,self.chinese_image_payload())
-        self.assertEqual(self.popup.text_labels[0].text(),"English rule")
+        self.assertEqual(self.popup.english_labels[0].text(),"English rule")
         self.popup.set_art(2,self.chinese_image_payload())
         english = {**self.chinese_image_payload(),"language":"英文","chinese_effect":None}
         self.popup.set_art(2,english)

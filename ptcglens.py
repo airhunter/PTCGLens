@@ -31,6 +31,7 @@ def stop_processes(processes: list[tuple[str, subprocess.Popen]]) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--overlay", action="store_true", help="启动游戏内快捷查询浮卡")
+    parser.add_argument("--check-permissions", action="store_true", help="检查采集权限；搭配 --overlay 检查输入权限")
     parser.add_argument("--port", type=int, default=8765, help="本地网页端口，默认 8765")
     parser.add_argument("--cache-root", type=Path, help="游戏卡图缓存目录")
     parser.add_argument("--game-cache", type=Path, help="游戏卡牌数据库目录")
@@ -38,6 +39,11 @@ def main() -> int:
     parser.add_argument("--capture-mode", choices=("window", "screen"), default="window",
                         help="window 支持切到浏览器后继续采集；screen 是前台截屏兼容模式")
     args = parser.parse_args()
+    if args.check_permissions:
+        from live_capture import check_permissions
+        missing = check_permissions(input_required=args.overlay)
+        print("\n".join(missing) if missing else "权限检查通过", flush=True)
+        return 1 if missing else 0
     if args.overlay:
         from overlay_app import main as overlay_main
         options = []

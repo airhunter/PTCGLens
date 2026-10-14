@@ -9,14 +9,13 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from PIL import ImageGrab
 
 from battle_multi import adaptive_layout, annotate, recognise_slot, scaled_box, suppress_occluded_slots
 from cache_search import read_image
 from recognition_index import FeatureIndex, compact_records
 from cache_watch import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE, refresh_once
 from global_cards import LargeCardFinder
-from live_capture import client_bbox, game_window, set_dpi_awareness, user32
+from live_capture import client_bbox, game_window, set_dpi_awareness, is_foreground, capture_screen, check_permissions
 from window_capture import WindowCaptureSession, crop_client_frame
 from atomic_json import read_json_retry
 
@@ -135,6 +134,9 @@ def main() -> None:
         parser.error("采集帧数、间隔或刷新周期无效")
     layout = json.loads(args.layout.read_text(encoding="utf-8"))
     set_dpi_awareness()
+    missing = check_permissions(request=True)
+    if missing:
+        parser.error("；".join(missing))
     previous = {}
     visuals, cards, index, preview_finder = load_resources(args.index_dir, args.visual_dir, args.card_data)
     last_cache_check = 0.0
@@ -170,7 +172,7 @@ def main() -> None:
                 time.sleep(max(args.interval, .5))
                 continue
             if args.capture_mode == "screen":
-                if hwnd != user32.GetForegroundWindow():
+                if not is_foreground(hwnd):
                     if idle_since is None:
                         idle_since = time.monotonic()
                         print("游戏未在前台，暂停截屏", flush=True)
@@ -179,10 +181,11 @@ def main() -> None:
                         break
                     time.sleep(max(args.interval, .5))
                     continue
-                captured = ImageGrab.grab(bbox=client_bbox(hwnd), all_screens=True)
-                screenshot = cv2.cvtColor(np.asarray(captured), cv2.COLOR_RGB2BGR)
+                screenshot = capture_screen(hwnd)
             else:
                 if capture_session is not None and (capture_session.hwnd != hwnd or capture_session.closed):
+                    if getattr(capture_session, "error", None):
+                        print(f"窗口采集中断：{capture_session.error}", flush=True)
                     capture_session.stop()
                     capture_session = None
                 if capture_session is None:
