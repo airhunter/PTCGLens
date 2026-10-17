@@ -7,9 +7,11 @@ import html
 import json
 import re
 import threading
+import time
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
 from atomic_json import read_json_retry, write_json_atomic
 
 
@@ -18,6 +20,32 @@ ENERGY = {
     "grass": "草", "fire": "火", "water": "水", "lightning": "雷", "psychic": "超",
     "fighting": "斗", "darkness": "恶", "metal": "钢", "colorless": "无色", "dragon": "龙",
 }
+
+
+class TranslationCancelled(RuntimeError):
+    pass
+
+
+class TranslationServiceError(RuntimeError):
+    def __init__(self, message, retryable=False):
+        super().__init__(message)
+        self.retryable = retryable
+
+
+def transient_error(error):
+    if isinstance(error, HTTPError):
+        return error.code in (408, 429) or 500 <= error.code <= 599
+    if isinstance(error, TranslationServiceError):
+        return error.retryable
+    return isinstance(error, (URLError, TimeoutError, ConnectionError))
+
+
+def wait_for_retry(seconds, cancelled):
+    end = time.monotonic()+seconds
+    while time.monotonic() < end:
+        if cancelled():
+            raise TranslationCancelled("查询已结束")
+        time.sleep(min(.1, max(0, end-time.monotonic())))
 
 
 def readable_text(source: str, language: str = "zh") -> str:
@@ -59,7 +87,9 @@ def translate_segment(source: str) -> str:
     with urlopen(request, timeout=12) as response:
         document = json.load(response)
     if document.get("responseStatus") != 200:
-        raise RuntimeError(str(document.get("responseDetails") or "翻译服务暂不可用"))
+        status = str(document.get("responseStatus"))
+        raise TranslationServiceError(str(document.get("responseDetails") or "翻译服务暂不可用"),
+                                      status in ("408", "429") or status.startswith("5"))
     translated = html.unescape(str(document.get("responseData", {}).get("translatedText") or "")).strip()
     if not translated:
         raise RuntimeError("翻译服务没有返回内容")
@@ -81,18 +111,40 @@ class TranslationCache:
         with self.lock:
             return self.entries.get(key)
 
-    def translate(self, source: str) -> tuple[str, bool]:
+    def translate(self, source: str, *, cancelled=None) -> tuple[str, bool]:
+        cancelled = cancelled or (lambda: False)
         normalized = readable_text(source)
         if not normalized:
             raise ValueError("没有可翻译的英文文本")
         key = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
         # 缓存读取不会被网络请求阻塞；串行请求仍避免同一文本重复下载。
-        with self.network_lock:
+        while not self.network_lock.acquire(timeout=.1):
+            if cancelled():
+                raise TranslationCancelled("查询已结束")
+        try:
+            if cancelled():
+                raise TranslationCancelled("查询已结束")
             with self.lock:
                 if key in self.entries:
                     return self.entries[key], True
-            translated = "\n".join(translate_segment(part) for part in segments(normalized))
+            translated_parts = []
+            for part in segments(normalized):
+                for attempt in range(3):
+                    if cancelled():
+                        raise TranslationCancelled("查询已结束")
+                    try:
+                        translated_parts.append(translate_segment(part))
+                        break
+                    except Exception as error:
+                        if attempt == 2 or not transient_error(error):
+                            raise
+                        wait_for_retry((.5, 1.5)[attempt], cancelled)
+            if cancelled():
+                raise TranslationCancelled("查询已结束")
+            translated = "\n".join(translated_parts)
             with self.lock:
                 self.entries[key] = translated
                 write_json_atomic(self.path, self.entries)
             return translated, False
+        finally:
+            self.network_lock.release()

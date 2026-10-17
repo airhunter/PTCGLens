@@ -80,7 +80,7 @@ class QueryQueueTest(unittest.TestCase):
                 worker.resources = ([], {key: {"card_id":key} for key in ("old", "new")}, None, None)
                 worker.latest_request = 1
                 entered, release = threading.Event(), threading.Event()
-                def slow(*args):
+                def slow(*args, **kwargs):
                     old = args[0] == "old text" if kind == "translate" else args[0]["card_id"] == "old"
                     if old:
                         entered.set()

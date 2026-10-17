@@ -78,11 +78,22 @@ def game_window(title_filter=None):
     def normalize(value):
         return "".join(c for c in unicodedata.normalize("NFKD", value).casefold() if c.isalnum())
     token = normalize(title_filter) if title_filter else None
-    matches = [(w, t) for w, t in visible_windows() if
-               (token in normalize(t) if token else "pokemon" in normalize(t) and "live" in normalize(t))]
+    matches = []
+    for info in _windows():
+        left, top, right, bottom = _rect(info)
+        if (info.get(CG.kCGWindowLayer, 0) != 0 or info.get(CG.kCGWindowAlpha, 1) <= 0
+                or right-left < 200 or bottom-top < 150):
+            continue
+        title = str(info.get(CG.kCGWindowName) or "")
+        label = title or str(info.get(CG.kCGWindowOwnerName) or "")
+        normalized = normalize(label)
+        matched = token in normalized if token else "pokemon" in normalized and "live" in normalized
+        if matched:
+            matches.append((int(info[CG.kCGWindowNumber]), label, bool(title), (right-left)*(bottom-top)))
     if not matches:
         raise RuntimeError("未找到 PTCG Live 窗口，请启动游戏或使用 --title 指定标题")
-    return next((item for item in matches if is_foreground(item[0])), matches[0])
+    chosen = max(matches, key=lambda item: (is_foreground(item[0]), item[2], item[3]))
+    return chosen[:2]
 
 
 def _rect(info):
@@ -190,7 +201,39 @@ def _await_call(start, timeout=5):
 
 
 def _image_array(image):
-    # 通过 Cocoa 的 PNG 编码固定颜色和行跨度；不能假定 CGImage 是紧密 BGRA。
+    # 由 CoreGraphics 绘制到指定的 RGBA 布局，不能假定源 CGImage 的通道顺序。
+    if CG.CGImageGetAlphaInfo(image) in (CG.kCGImageAlphaFirst, CG.kCGImageAlphaLast,
+                                       CG.kCGImageAlphaOnly):
+        # 非预乘源经位图绘制会丢失半透明像素精度；原生采集帧不走此分支。
+        return _image_array_png(image)
+    width, height = CG.CGImageGetWidth(image), CG.CGImageGetHeight(image)
+    raw = bytearray(width*height*4)
+    space = CG.CGImageGetColorSpace(image)
+    if space is None or CG.CGColorSpaceGetModel(space) != CG.kCGColorSpaceModelRGB:
+        space = CG.CGColorSpaceCreateDeviceRGB()
+    context = CG.CGBitmapContextCreate(raw, width, height, 8, width*4, space,
+        CG.kCGImageAlphaPremultipliedLast | CG.kCGBitmapByteOrder32Big)
+    if context is not None:
+        try:
+            CG.CGContextDrawImage(context, ((0, 0), (width, height)), image)
+            pixels = np.frombuffer(raw, np.uint8).reshape(height, width, 4)
+            # BGR 不含 alpha；与原 PNG 解码一致，恢复透明圆角的非预乘颜色。
+            alpha = pixels[:, :, 3]
+            partial = (alpha > 0) & (alpha < 255)
+            if partial.any():
+                colors = pixels[:, :, :3]
+                divisor = alpha[partial, None].astype(np.uint16)
+                colors[partial] = np.minimum(
+                    (colors[partial].astype(np.uint16)*255+divisor//2)//divisor, 255).astype(np.uint8)
+            return cv2.cvtColor(pixels, cv2.COLOR_RGBA2BGR)
+        finally:
+            # PyObjC 不锁定外部缓冲区；必须在 raw 释放前销毁位图上下文。
+            del context
+    return _image_array_png(image)
+
+
+def _image_array_png(image):
+    # 非标准颜色空间无法建立位图上下文时保留 Cocoa 转换回退。
     bitmap = AppKit.NSBitmapImageRep.alloc().initWithCGImage_(image)
     data = bitmap.representationUsingType_properties_(AppKit.NSBitmapImageFileTypePNG, {})
     array = cv2.imdecode(np.frombuffer(bytes(data), np.uint8), cv2.IMREAD_COLOR)
@@ -317,11 +360,17 @@ def configure_popup(native_id):
     from PySide6.QtGui import QGuiApplication
     if QGuiApplication.platformName() != "cocoa":
         return
-    # Qt 的 winId 是 NSView 指针，不是 CGWindowID。允许非激活浮卡跟随游戏
-    # 出现在其他桌面及全屏空间，而不是留在启动程序所在的桌面。
+    # Qt 的 winId 是 NSView 指针，不是 CGWindowID。FullScreenAuxiliary 只描述
+    # 本应用的辅助窗口；跨应用全屏还需 CanJoinAllApplications（macOS 13+）。
     window = objc.objc_object(c_void_p=c_void_p(native_id)).window()
-    behavior = window.collectionBehavior() & ~AppKit.NSWindowCollectionBehaviorMoveToActiveSpace
+    excluded = (AppKit.NSWindowCollectionBehaviorMoveToActiveSpace |
+                AppKit.NSWindowCollectionBehaviorPrimary |
+                AppKit.NSWindowCollectionBehaviorAuxiliary |
+                AppKit.NSWindowCollectionBehaviorFullScreenPrimary |
+                AppKit.NSWindowCollectionBehaviorFullScreenNone)
+    behavior = window.collectionBehavior() & ~excluded
     window.setCollectionBehavior_(behavior | AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces |
+                                  AppKit.NSWindowCollectionBehaviorCanJoinAllApplications |
                                   AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary)
     window.setHidesOnDeactivate_(False)
 

@@ -68,6 +68,17 @@ class ReadingCardTest(unittest.TestCase):
         self.assertEqual(self.popup.labels[0][0].text(), "待确认")
         self.assertEqual(len(self.popup.labels), 1)
 
+    def test_capture_error_and_cache_wait_are_visible_without_hovering_tooltip(self):
+        self.popup.show_result({"id": 2, "error": "暂未收到游戏画面，请保持窗口展开并稍后重试"})
+        text = "\n".join(label.text() for label in self.popup.findChildren(QLabel))
+        self.assertIn("暂未收到游戏画面", text)
+        self.popup.show_result({"id": 2, "checking_cache": True})
+        self.popup.cache_status({"pending": ["new_card"]})
+        self.assertIn("游戏正在写入", self.popup.cache_hint.text())
+        self.popup.show_result({"id": 2, "card": self.card})
+        self.popup.cache_status({"error": "old failure"})
+        self.assertIsNone(self.popup.cache_hint)
+
     def test_local_chinese_has_translation_mark_and_no_network_button(self):
         self.card["attacks"][1].update(name_zh="参考名称", name_zh_source="local", text_zh="参考译文", text_zh_source="local")
         self.popup.show_result({"id":2, "card":self.card})

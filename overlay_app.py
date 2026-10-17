@@ -1,4 +1,4 @@
-"""在游戏中按住查询键点击卡牌，显示中文阅读浮卡。"""
+"""在游戏中按住快捷键悬停查询，显示中英双语阅读浮卡。"""
 
 from __future__ import annotations
 
@@ -15,7 +15,8 @@ from PySide6.QtCore import QLockFile, QObject, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                               QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
-                              QSystemTrayIcon, QVBoxLayout, QWidget, QScrollArea, QFrame, QDoubleSpinBox, QStyle)
+                              QSystemTrayIcon, QVBoxLayout, QWidget, QScrollArea, QFrame, QDoubleSpinBox, QStyle,
+                              QMessageBox)
 
 from battle_live import is_battle_screen, load_resources
 from battle_multi import adaptive_layout, recognise_slot, scaled_box
@@ -56,6 +57,8 @@ class Events(QObject):
     answer = Signal(object)
     art = Signal(int, object)
     translated = Signal(int, object, str)
+    cache_checked = Signal(object)
+    capture_state = Signal(str)
 
 
 class Recognizer(threading.Thread):
@@ -64,6 +67,9 @@ class Recognizer(threading.Thread):
         self.events, self.args = events, args
         self.jobs = LatestJobQueue()
         self.stop_event = threading.Event()
+        self.refresh_requested = threading.Event()
+        self.index_revision = 0
+        self.last_capture_state = None
         self.session = None
         self.ready = False
         self.latest_request = 0
@@ -107,7 +113,8 @@ class Recognizer(threading.Thread):
             if kind == "translate":
                 _, number, source = job
                 try:
-                    text, _ = self.translator.translate(source)
+                    text, _ = self.translator.translate(source,
+                        cancelled=lambda: request_id != self.latest_request or self.stop_event.is_set())
                     if request_id == self.latest_request and not self.stop_event.is_set():
                         self.events.translated.emit(request_id, number, text)
                 except Exception as exc:
@@ -129,16 +136,32 @@ class Recognizer(threading.Thread):
                     print(f"卡图加载暂不可用：{card_id}，{exc}",flush=True)
 
     def refresh_cache(self):
-        while not self.stop_event.wait(30):
+        last_refresh = float("-inf")
+        while not self.stop_event.is_set():
+            self.refresh_requested.wait(5)
+            self.refresh_requested.clear()
+            if self.stop_event.is_set():
+                break
+            if self.stop_event.wait(max(0, 1-(time.monotonic()-last_refresh))):
+                break
+            last_refresh = time.monotonic()
             try:
                 refreshed = refresh_once(self.args.cache_root, ROOT / "output/index",
                     ROOT / "output/card-thumbnails", self.args.game_cache,
                     self.args.translation_root, ROOT / "output/card-data.json")
+                if self.stop_event.is_set():
+                    break
                 if any(refreshed[key] for key in ("added", "updated", "visual_rebuilt", "card_data_refreshed")):
                     self.reload_resources(refreshed)
                     self.events.status.emit("本地卡牌索引已更新")
+                self.events.cache_checked.emit(refreshed)
+                if refreshed["pending"]:
+                    self.refresh_requested.set()
             except Exception as exc:
+                if self.stop_event.is_set():
+                    break
                 self.events.status.emit(f"缓存更新暂未完成：{exc}")
+                self.events.cache_checked.emit({"error": str(exc)})
 
     def reload_resources(self, refreshed):
         previous = self.resources
@@ -149,6 +172,7 @@ class Recognizer(threading.Thread):
             cards = read_json_retry(ROOT / "output/card-data.json")["cards"]
             replacement = (previous[0], cards, previous[2], previous[3])
         self.resources = replacement
+        self.index_revision += 1
 
     def query(self, request_id, request):
         self.latest_request = request_id
@@ -156,6 +180,33 @@ class Recognizer(threading.Thread):
 
     def prepare_metadata(self):
         path = ROOT / "output/card-data.json"
+        manifest = ROOT / "output/index/manifest.json"
+        last_status = None
+        while (not manifest.is_file() or not path.is_file() or not read_json_retry(manifest).get("cards")
+               or not read_json_retry(path).get("cards")):
+            if self.stop_event.is_set():
+                return
+            try:
+                if last_status is None:
+                    self.events.status.emit("首次准备：正在检查游戏缓存并建立卡牌索引……")
+                result = refresh_once(self.args.cache_root, ROOT / "output/index",
+                    ROOT / "output/card-thumbnails", self.args.game_cache, self.args.translation_root, path)
+                if result["cards"] and path.is_file() and read_json_retry(path).get("cards"):
+                    break
+                message = ("已经找到卡图，正在等待英文卡牌资料。请让游戏完成数据下载，程序会自动继续。"
+                           if result["cards"] else
+                           "还没有可识别的卡图。请启动游戏并打开卡牌页面，下载完成后会自动继续。")
+            except Exception as error:
+                message = f"正在等待游戏缓存。请启动游戏并打开卡牌页面；也可在运行状态中核对缓存目录。详情：{error}"
+            if message != last_status:
+                self.events.status.emit(message)
+                last_status = message
+            for _ in range(50):
+                if self.stop_event.wait(.1):
+                    return
+                if self.refresh_requested.is_set():
+                    self.refresh_requested.clear()
+                    break
         if metadata_is_stale(path, self.args.game_cache, self.args.translation_root):
             self.events.status.emit("正在更新本地中文资料……")
             try:
@@ -170,6 +221,8 @@ class Recognizer(threading.Thread):
         try:
             self.events.status.emit("正在加载本地卡牌索引……")
             self.prepare_metadata()
+            if self.stop_event.is_set():
+                return
             self.resources = load_resources(ROOT / "output/index", ROOT / "output/card-thumbnails",
                                             ROOT / "output/card-data.json")
             self.layout = json.loads((ROOT / "battle_layout.sample.json").read_text(encoding="utf-8"))
@@ -204,15 +257,19 @@ class Recognizer(threading.Thread):
                         raise RuntimeError("鼠标不在游戏画面中")
                     # 一次查询使用同一份索引及卡牌资料；后台更新在下次查询生效。
                     self.query_resources = self.resources
+                    index_revision = self.index_revision
                     result = self.recognize(screenshot, local)
                     if request_id != self.latest_request or self.stop_event.is_set():
                         continue
                     _, cards, _, _ = self.query_resources
                     card = cards.get(result.get("card_id")) if result.get("status") == "matched" else None
                     self.query_card = (request_id, card) if card else None
+                    if card is None:
+                        self.refresh_requested.set()
                     elapsed = round((time.perf_counter()-started)*1000)
                     self.events.answer.emit({"id": request_id, "card": card, "result": result,
-                                             "bbox": bbox, "shape": screenshot.shape[:2], "elapsed": elapsed})
+                                             "bbox": bbox, "shape": screenshot.shape[:2], "elapsed": elapsed,
+                                             "checking_cache": card is None, "index_revision": index_revision})
                     print(f"查询 {request_id}：{result.get('status')} {result.get('card_id', '')}，{elapsed} ms", flush=True)
                     if self.args.diagnose_input or result.get("status") != "matched":
                         try:
@@ -224,7 +281,9 @@ class Recognizer(threading.Thread):
                         self.art_jobs.put((request_id, card["card_id"]))
                 except Exception as exc:
                     if request_id == self.latest_request and not self.stop_event.is_set():
-                        self.events.answer.emit({"id": request_id, "error": str(exc)})
+                        self.events.answer.emit({"id": request_id, "error": str(exc),
+                                                 "retry_capture": request.get("screenshot") is None
+                                                     or bool(request.get("capture_error"))})
                 finally:
                     self.query_resources = None
         except Exception as exc:
@@ -248,6 +307,12 @@ class Recognizer(threading.Thread):
             raise RuntimeError(failure)
         if hwnd and not self.session:
             self.session = WindowCaptureSession(hwnd, .1)
+        state = ("正在接收游戏画面" if self.session and self.session.newest(0) else
+                 "正在等待第一帧游戏画面" if hwnd else
+                 "等待游戏窗口：请启动或恢复游戏，并切换到游戏所在桌面")
+        if state != self.last_capture_state:
+            self.last_capture_state = state
+            self.events.capture_state.emit(state)
 
     def recognize(self, screenshot, point):
         resources = getattr(self, "query_resources", None) or self.resources
@@ -339,6 +404,7 @@ class ReadingCard(QWidget):
         self.printing_label = None
         self.original_printing = ""
         self.pending_translations = set()
+        self.cache_hint = None
         self.compact_media = False
         self.text_labels = {}
         self.buttons = {}
@@ -369,6 +435,7 @@ class ReadingCard(QWidget):
         get_backend().configure_popup(int(self.winId()))
 
     def content(self):
+        self.cache_hint = None
         self.image = None
         self.art_pixmap = None
         self.card_id = None
@@ -532,7 +599,11 @@ class ReadingCard(QWidget):
         card = payload.get("card")
         if not card:
             self.source_badge.setText("?")
-            self.label("待确认", True)
+            self.label("暂时无法查询" if payload.get("error") else "待确认", True)
+            if payload.get("error"):
+                self.label(payload["error"])
+            elif payload.get("checking_cache"):
+                self.cache_hint = self.label("正在检查本地卡图；缓存更新后会自动重试。")
             self.setToolTip(payload.get("error", ""))
             self.finish_content()
             return
@@ -569,6 +640,19 @@ class ReadingCard(QWidget):
         self.printing_label = self.label(self.original_printing,role="footer")
         self.update_badge()
         self.finish_content()
+
+    def cache_status(self, result):
+        if self.cache_hint is None:
+            return
+        if result.get("error"):
+            text = "缓存检查暂不可用，可从托盘打开运行状态查看原因。"
+        elif result.get("pending"):
+            text = "游戏正在写入新卡缓存，完成后会自动重试。"
+        else:
+            text = "尚未确认卡牌。可将指针移到插画中央，或打开卡牌特写后重新悬停。"
+        if self.cache_hint.text() != text:
+            self.cache_hint.setText(text)
+            self.finish_content()
 
     @staticmethod
     def chinese_mark(chinese, source):
@@ -671,6 +755,8 @@ class Overlay(QObject):
         self.events.answer.connect(self.answer, Qt.ConnectionType.QueuedConnection)
         self.events.art.connect(self.popup.set_art, Qt.ConnectionType.QueuedConnection)
         self.events.translated.connect(self.popup.translated, Qt.ConnectionType.QueuedConnection)
+        self.events.cache_checked.connect(self.cache_checked, Qt.ConnectionType.QueuedConnection)
+        self.events.capture_state.connect(self.capture_state, Qt.ConnectionType.QueuedConnection)
         self.events.status.connect(self.status, Qt.ConnectionType.QueuedConnection)
         self.events.ready.connect(self.start_hook, Qt.ConnectionType.QueuedConnection)
         self.keep_in_game = bool(self.settings.get("keep_in_game", True))
@@ -687,6 +773,9 @@ class Overlay(QObject):
         self.request_id = 0
         self.hold_epoch = None
         self.wanted = False
+        self.waiting_for_cache = False
+        self.capture_retry_at = None
+        self.capture_retries = 0
         self.popup_box = None
         self.target_relative = None
         self.positioning = False
@@ -694,6 +783,9 @@ class Overlay(QObject):
         self.last_input_diagnostic = None
         self.next_art_refresh = 0
         self.last_pixel_ratio = None
+        self.current_status = "正在启动……"
+        self.current_capture_state = "等待准备完成"
+        self.status_dialog = None
         icon = QPixmap(32, 32)
         icon.fill(QColor("#18232e"))
         painter = QPainter(icon)
@@ -703,6 +795,7 @@ class Overlay(QObject):
         self.tray = QSystemTrayIcon(QIcon(icon), app)
         self.menu = QMenu()
         self.menu.addAction("设置查询快捷键", self.configure)
+        self.menu.addAction("运行状态与准备", self.show_status)
         self.menu.addAction("关闭阅读浮卡", self.dismiss)
         self.menu.addSeparator()
         self.menu.addAction("退出 PTCGLens", app.quit)
@@ -715,6 +808,8 @@ class Overlay(QObject):
         self.worker.start()
         self.status("正在准备游戏内快捷查询")
         self.tray.showMessage("PTCGLens", self.instruction(), QSystemTrayIcon.MessageIcon.Information, 5000)
+        if not (ROOT / "output/index/manifest.json").is_file() or not (ROOT / "output/card-data.json").is_file():
+            QTimer.singleShot(0, self.show_status)
 
     def make_hook(self):
         if self.mode == "hover":
@@ -739,8 +834,53 @@ class Overlay(QObject):
             self.hook.start()
 
     def status(self, text):
+        self.current_status = text
+        if self.status_dialog is not None:
+            self.status_label.setText(text)
         self.tray.setToolTip(f"PTCGLens · {self.instruction()}\n{text}"[:127])
         print(text, flush=True)
+
+    @Slot(str)
+    def capture_state(self, text):
+        self.current_capture_state = text
+        if text == "正在接收游戏画面" and self.current_status.startswith("窗口采集连接失败"):
+            self.status("游戏画面已恢复，可以继续悬停查询")
+        if self.status_dialog is not None:
+            self.capture_label.setText(text)
+
+    def show_status(self):
+        if self.status_dialog is None:
+            self.status_dialog = QDialog()
+            self.status_dialog.setWindowTitle("PTCGLens · 运行状态与准备")
+            self.status_dialog.resize(580, 330)
+            layout = QVBoxLayout(self.status_dialog)
+            self.status_label = QLabel(self.current_status)
+            self.status_label.setWordWrap(True)
+            layout.addWidget(self.status_label)
+            self.capture_label = QLabel(self.current_capture_state)
+            self.capture_label.setWordWrap(True)
+            layout.addWidget(self.capture_label)
+            hint = QLabel("先启动游戏并打开卡牌页面，程序会自动建立和更新索引。\n"
+                          "就绪后："+self.instruction()+"。\n"
+                          "缺少中文对照时会自动翻译，英文始终保留。")
+            hint.setWordWrap(True)
+            layout.addWidget(hint)
+            for name, path in (("卡图目录", self.args.cache_root), ("英文资料目录", self.args.game_cache),
+                               ("简中对照目录（可选）", self.args.translation_root)):
+                label = QLabel(f"{name}：{path}")
+                label.setWordWrap(True)
+                layout.addWidget(label)
+            refresh = QPushButton("检查新卡缓存")
+            refresh.clicked.connect(self.worker.refresh_requested.set)
+            layout.addWidget(refresh)
+            close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+            close.button(QDialogButtonBox.StandardButton.Close).setText("关闭")
+            close.rejected.connect(self.status_dialog.close)
+            layout.addWidget(close)
+        self.status_label.setText(self.current_status)
+        self.capture_label.setText(self.current_capture_state)
+        self.status_dialog.show()
+        self.status_dialog.raise_()
 
     def poll(self):
         try:
@@ -778,6 +918,10 @@ class Overlay(QObject):
             if now >= self.next_art_refresh:
                 self.next_art_refresh = now+3
                 self.worker.art_jobs.put((self.request_id,self.popup.card_id))
+        if self.wanted and self.capture_retry_at is not None and time.monotonic() >= self.capture_retry_at:
+            self.capture_retry_at = None
+            if self.mode == "hover" and self.hook.valid(self.hold_epoch):
+                self.hook.retry(self.hold_epoch)
 
     def dismiss(self):
         self.request_id += 1
@@ -788,6 +932,9 @@ class Overlay(QObject):
             self.hook.invalidate()
         self.popup_box = None
         self.wanted = False
+        self.waiting_for_cache = False
+        self.capture_retry_at = None
+        self.capture_retries = 0
         self.hook.dismiss_enabled = False
         self.hook.outside_dismiss_enabled = False
         self.popup.hide()
@@ -819,6 +966,8 @@ class Overlay(QObject):
         if self.mode == "hover" and not self.hook.valid(request.get("hold_epoch")):
             return
         self.hold_epoch = request.get("hold_epoch")
+        self.waiting_for_cache = False
+        self.capture_retry_at = None
         x, y = request["point"]
         self.query_started = request["started"]
         self.request_id += 1
@@ -845,11 +994,31 @@ class Overlay(QObject):
             if self.mode == "hover" and self.hook.bbox:
                 self.hook.set_target(restore_rect(self.target_relative, self.hook.bbox))
         self.popup.show_result(payload)
+        self.waiting_for_cache = not payload.get("card") and "error" not in payload
+        if payload.get("card"):
+            self.capture_retries = 0
+        elif payload.get("retry_capture") and self.capture_retries < 2:
+            self.capture_retries += 1
+            self.capture_retry_at = time.monotonic()+1
+        elif self.waiting_for_cache and payload.get("index_revision", 0) < self.worker.index_revision:
+            self.cache_checked({"card_data_refreshed": True})
         self.reposition()
         self.status(f"本次查询已完成：{payload.get('elapsed', '—')} ms")
         if "elapsed" in payload:
             print(f"浮卡已显示：查询 {payload['id']}，点击至界面更新 "
                   f"{round((time.perf_counter()-self.query_started)*1000)} ms", flush=True)
+
+    @Slot(object)
+    def cache_checked(self, result):
+        if not self.waiting_for_cache or not self.wanted:
+            return
+        changed = any(result.get(key) for key in ("added", "updated", "visual_rebuilt", "card_data_refreshed"))
+        if changed and self.mode == "hover" and self.hook.valid(self.hold_epoch):
+            if self.hook.retry(self.hold_epoch):
+                self.waiting_for_cache = False
+                self.popup.loading(self.request_id, True)
+        else:
+            self.popup.cache_status(result)
 
     @Slot()
     def reposition(self):
@@ -957,6 +1126,7 @@ class Overlay(QObject):
         self.timer.stop()
         self.hook.stop()
         self.worker.stop_event.set()
+        self.worker.refresh_requested.set()
         if self.hook.ident is not None:
             self.hook.join(timeout=2)
         self.worker.join(timeout=3)
@@ -970,16 +1140,17 @@ def main(argv=None):
     parser.add_argument("--translation-root", type=Path, default=ROOT / ".tmp/ptcg-live-zh-mod/databases_zh-CN")
     parser.add_argument("--diagnose-input", action="store_true", help="在终端输出悬停或点击查询输入诊断")
     args = parser.parse_args(argv)
-    if not (ROOT / "output/index/manifest.json").is_file() or not (ROOT / "output/card-data.json").is_file():
-        parser.error("尚未建立索引；请先运行 uv run python cache_watch.py --once")
     set_dpi_awareness()
-    missing = check_permissions(input_required=True, request=True)
-    if missing:
-        parser.error("；".join(missing))
     plugin_directory = prepare_qt_plugins()
     app = QApplication(sys.argv[:1])
     configure_font(app)
     app.setQuitOnLastWindowClosed(False)
+    missing = check_permissions(input_required=True, request=True)
+    if missing:
+        QMessageBox.warning(None, "PTCGLens · 需要系统权限", "\n\n".join(missing)+
+                            "\n\n授权实际启动程序的终端或应用后，重启该应用并重新运行 PTCGLens。")
+        return 1
+    (ROOT / "output").mkdir(parents=True, exist_ok=True)
     instance_lock = QLockFile(str(ROOT / "output/overlay.lock"))
     instance_lock.setStaleLockTime(0)
     if not instance_lock.tryLock(0):

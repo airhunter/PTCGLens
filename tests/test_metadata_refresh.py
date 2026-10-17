@@ -11,6 +11,27 @@ from local_chinese import LOCAL_CHINESE_PATH
 
 
 class MetadataRefreshTest(unittest.TestCase):
+    def test_missing_optional_chinese_and_git_keep_english_and_local_supplement(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            index, cache = root/"index", root/"cache"
+            index.mkdir(); cache.mkdir()
+            (index/"manifest.json").write_text(json.dumps({"cards": [{"card_id": "test_en_001"}]}))
+            (cache/"card-database-test_0_en_0.json").write_text("{}")
+            chinese = root/"optional-zh"
+            for exists in (False, True):
+                if exists:
+                    chinese.mkdir()
+                with patch("card_data.read_game_database", return_value=[
+                        {"cardID": "test_1", "EN Card Name": "Fuecoco ex", "EN Attack Text": "English rule."}]), \
+                     patch("card_data.subprocess.run", side_effect=FileNotFoundError("git unavailable")):
+                    document = build_card_data(index, cache, chinese, root/"cards.json")
+                card = document["cards"]["test_en_001"]
+                self.assertEqual(card["name_en"], "Fuecoco ex")
+                self.assertEqual(card["name_zh"], "呆火鳄ex")
+                self.assertEqual(card["card_text_en"], "English rule.")
+                self.assertIsNone(document["source"]["translation_revision"])
+
     def test_failed_game_database_refresh_preserves_last_complete_data(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

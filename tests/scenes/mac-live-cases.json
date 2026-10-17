@@ -74,6 +74,63 @@
           ]
         }
       ]
+    },
+    {
+      "id": "mac-decks-eevee-retina-content",
+      "image": "mac-validation/client-after-permissions.png",
+      "scales": [
+        0.667,
+        0.8,
+        1,
+        1.333
+      ],
+      "points": [
+        {
+          "id": "eevee-fetch-hide",
+          "point": [
+            160,
+            350
+          ],
+          "name_en": "Eevee",
+          "rules_card_id": "me5-5_en_116"
+        },
+        {
+          "id": "eevee-quick-attack",
+          "point": [
+            500,
+            350
+          ],
+          "name_en": "Eevee",
+          "rules_card_id": "me5-5_en_117"
+        },
+        {
+          "id": "eevee-call-family",
+          "point": [
+            830,
+            350
+          ],
+          "name_en": "Eevee",
+          "rules_card_id": "sv7_en_113"
+        },
+        {
+          "id": "eevee-boosted-evolution",
+          "point": [
+            1160,
+            350
+          ],
+          "name_en": "Eevee",
+          "rules_card_id": "sv8-5_en_074"
+        },
+        {
+          "id": "eevee-colorful-catch",
+          "point": [
+            1500,
+            350
+          ],
+          "name_en": "Eevee",
+          "rules_card_id": "sv6-5_en_050"
+        }
+      ]
     }
   ]
 }

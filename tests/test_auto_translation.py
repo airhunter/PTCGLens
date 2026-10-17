@@ -5,12 +5,49 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
+from urllib.error import HTTPError, URLError
 
-from card_translation import TranslationCache, readable_text
+from card_translation import TranslationCache, TranslationCancelled, readable_text
 from viewer import make_handler
 
 
 class AutoTranslationTest(unittest.TestCase):
+    def test_transient_failures_retry_and_cache_only_complete_translation(self):
+        with TemporaryDirectory() as folder:
+            cache = TranslationCache(Path(folder)/"cache.json")
+            with patch("card_translation.translate_segment", side_effect=[URLError("offline"),
+                       HTTPError("https://example.test", 503, "busy", {}, None), "成功译文"]) as fetch, \
+                 patch("card_translation.wait_for_retry"):
+                self.assertEqual(cache.translate("Original rule"), ("成功译文", False))
+                self.assertEqual(fetch.call_count, 3)
+            self.assertEqual(cache.cached("Original rule"), "成功译文")
+
+    def test_permanent_errors_and_exhausted_retries_do_not_cache_failure(self):
+        with TemporaryDirectory() as folder:
+            cache = TranslationCache(Path(folder)/"cache.json")
+            for code, attempts in ((400, 1), (429, 3)):
+                with self.subTest(code=code), \
+                     patch("card_translation.translate_segment", side_effect=HTTPError(
+                         "https://example.test", code, "failed", {}, None)) as fetch, \
+                     patch("card_translation.wait_for_retry"):
+                    with self.assertRaises(HTTPError):
+                        cache.translate("Original rule")
+                    self.assertEqual(fetch.call_count, attempts)
+                    self.assertIsNone(cache.cached("Original rule"))
+
+    def test_cancelled_query_does_not_continue_retrying(self):
+        with TemporaryDirectory() as folder:
+            cache = TranslationCache(Path(folder)/"cache.json")
+            cancelled = threading.Event()
+            def fetch(source):
+                cancelled.set()
+                raise URLError("offline")
+            with patch("card_translation.translate_segment", side_effect=fetch) as fetch:
+                with self.assertRaises(TranslationCancelled):
+                    cache.translate("Original rule", cancelled=cancelled.is_set)
+                self.assertEqual(fetch.call_count, 1)
+            self.assertIsNone(cache.cached("Original rule"))
+
     def test_cached_read_is_not_blocked_by_network_translation(self):
         with TemporaryDirectory() as folder:
             cache = TranslationCache(Path(folder)/"cache.json")

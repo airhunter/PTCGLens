@@ -3,7 +3,7 @@ import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -89,6 +89,20 @@ class MacCaptureTest(unittest.TestCase):
     def setUpClass(cls):
         cls.backend = importlib.import_module("platform_backend.macos")
 
+    def test_fullscreen_titlebar_and_animation_windows_do_not_replace_game(self):
+        b = self.backend
+        windows = [{b.CG.kCGWindowNumber: wid, b.CG.kCGWindowName: title,
+                    b.CG.kCGWindowOwnerName: "Pokemon TCG Live", b.CG.kCGWindowLayer: 0,
+                    b.CG.kCGWindowBounds: {"X": 0, "Y": 0, "Width": 1470, "Height": height}}
+                   for wid, title, height in ((10529, "", 44), (10528, "", 956),
+                                              (6185, "Pokemon TCG Live", 923))]
+        with patch.object(b, "_windows", return_value=windows), \
+             patch.object(b, "is_foreground", return_value=True):
+            self.assertEqual(b.game_window(), (6185, "Pokemon TCG Live"))
+        with patch.object(b, "_windows", return_value=windows[:1]):
+            with self.assertRaisesRegex(RuntimeError, "未找到"):
+                b.game_window()
+
     def test_native_selectors_exist(self):
         b = self.backend
         self.assertTrue(hasattr(b.SC.SCScreenshotManager, "captureImageWithFilter_configuration_completionHandler_"))
@@ -99,6 +113,26 @@ class MacCaptureTest(unittest.TestCase):
         config.setIgnoreShadowsSingleWindow_(True)
         self.assertEqual(config.width(), 200)
 
+    def test_popup_can_join_other_apps_fullscreen_without_conflicting_roles(self):
+        b = self.backend
+        window = Mock()
+        window.collectionBehavior.return_value = (b.AppKit.NSWindowCollectionBehaviorPrimary |
+            b.AppKit.NSWindowCollectionBehaviorAuxiliary |
+            b.AppKit.NSWindowCollectionBehaviorMoveToActiveSpace |
+            b.AppKit.NSWindowCollectionBehaviorFullScreenPrimary |
+            b.AppKit.NSWindowCollectionBehaviorFullScreenNone)
+        view = Mock()
+        view.window.return_value = window
+        with patch("PySide6.QtGui.QGuiApplication.platformName", return_value="cocoa"), \
+             patch.object(b.objc, "objc_object", return_value=view):
+            b.configure_popup(123)
+        window.setCollectionBehavior_.assert_called_once_with(
+            b.AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces |
+            b.AppKit.NSWindowCollectionBehaviorCanJoinAllApplications |
+            b.AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary)
+        window.setHidesOnDeactivate_.assert_called_once_with(False)
+        window.makeKeyAndOrderFront_.assert_not_called()
+
     def test_native_cgimage_decodes_to_bgr_without_color_changes(self):
         import cv2
         pixels = np.zeros((20,30,3), np.uint8)
@@ -106,6 +140,33 @@ class MacCaptureTest(unittest.TestCase):
         ok, data = cv2.imencode(".png", pixels)
         image = self.backend.AppKit.NSBitmapImageRep.imageRepWithData_(bytes(data)).CGImage()
         self.assertTrue(np.array_equal(self.backend._image_array(image), pixels))
+
+    def test_cgimage_conversion_preserves_odd_stride_orientation_and_channels(self):
+        import cv2
+        b = self.backend
+        pixels = np.random.default_rng(42).integers(0, 256, (21, 31, 3), dtype=np.uint8)
+        _, data = cv2.imencode(".png", pixels)
+        image = b.AppKit.NSBitmapImageRep.imageRepWithData_(bytes(data)).CGImage()
+        self.assertTrue(np.array_equal(b._image_array(image), pixels))
+        with patch.object(b.CG, "CGBitmapContextCreate", return_value=None):
+            self.assertTrue(np.array_equal(b._image_array(image), pixels))
+
+    def test_transparent_window_corners_keep_png_conversion_colors(self):
+        import cv2
+        b = self.backend
+        pixels = np.random.default_rng(7).integers(0, 256, (31, 21, 4), dtype=np.uint8)
+        _, data = cv2.imencode(".png", pixels)
+        image = b.AppKit.NSBitmapImageRep.imageRepWithData_(bytes(data)).CGImage()
+        self.assertTrue(np.array_equal(b._image_array(image), b._image_array_png(image)))
+        pixels[:, :, :3] = (pixels[:, :, :3].astype(np.uint16)*pixels[:, :, 3, None]//255).astype(np.uint8)
+        raw = bytearray(pixels.tobytes())
+        context = b.CG.CGBitmapContextCreate(raw, 21, 31, 8, 21*4, b.CG.CGColorSpaceCreateDeviceRGB(),
+            b.CG.kCGImageAlphaPremultipliedLast | b.CG.kCGBitmapByteOrder32Big)
+        try:
+            image = b.CG.CGBitmapContextCreateImage(context)
+            self.assertTrue(np.array_equal(b._image_array(image), b._image_array_png(image)))
+        finally:
+            del context
 
     def test_retina_crop_uses_frame_snapshot_and_preserves_pixels(self):
         b = self.backend

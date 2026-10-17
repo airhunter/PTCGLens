@@ -177,10 +177,10 @@ def build_card_data(index_dir: Path, game_cache: Path, translation_root: Path, o
                 if card_id:
                     rows_by_id[card_id] = row
 
-    translations = {
-        name: json.loads((translation_root / f"{name}.json").read_text(encoding="utf-8"))
-        for name in ("names", "attks-name", "attks-text")
-    }
+    translations = {}
+    for name in ("names", "attks-name", "attks-text"):
+        path = translation_root / f"{name}.json"
+        translations[name] = read_json_retry(path) if path.is_file() else {}
     local = load_local_chinese(supplement_path)
     cards = {}
     missing = []
@@ -217,14 +217,19 @@ def build_card_data(index_dir: Path, game_cache: Path, translation_root: Path, o
         "game_database_files": len(database_files),
     }
     source_repo = translation_root.parent
-    revision = subprocess.run(
-        ["git", "-C", str(source_repo), "rev-parse", "HEAD"],
-        capture_output=True, text=True, check=False,
-    )
+    revision = None
+    if translation_root.is_dir():
+        try:
+            result = subprocess.run(["git", "-C", str(source_repo), "rev-parse", "HEAD"],
+                                    capture_output=True, text=True, check=False)
+            revision = result.stdout.strip() if result.returncode == 0 else None
+        except OSError:
+            pass  # Git 仅用于记录可选上游资料的版本。
     document = {
         "source": {
             "translation_repository": "https://github.com/Hill-98/ptcg-live-zh-mod",
-            "translation_revision": revision.stdout.strip() if revision.returncode == 0 else None,
+            "translation_revision": revision,
+            "translation_fields_available": [name for name, values in translations.items() if values],
             "translation_license": "GPL-3.0",
             "game_cache": str(game_cache),
             "local_translation_revision": hashlib.sha256(supplement_path.read_bytes()).hexdigest(),

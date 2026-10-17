@@ -96,6 +96,15 @@ class HoverTrigger(threading.Thread):
             self.state.reset()
             self.state.blocked = True
 
+    def retry(self, epoch):
+        """新索引或采集恢复后重新计时，仍受实体按键与前台判定约束。"""
+        with self.lock:
+            if not self.state.held or self.state.blocked or self.state.epoch != epoch:
+                return False
+            self.state.target = self.state.anchor = self.state.since = None
+            self.state.fired = False
+            return True
+
     def run(self):
         backend = get_backend()
         backend.set_dpi_awareness()
@@ -114,8 +123,9 @@ class HoverTrigger(threading.Thread):
                 point = backend.pointer_position()
                 box = self.bbox
                 inside = bool(box and box[0] <= point[0] < box[2] and box[1] <= point[1] < box[3])
-                over_game = inside and backend.pointer_over_window(self.hwnd, point)
                 over_popup = self.popup_contains(point)
+                over_game = bool(pressed and active and inside and not over_popup
+                                 and backend.pointer_over_window(self.hwnd, point))
                 with self.lock:
                     was_held = self.state.held
                     if self.hwnd != self.last_window and self.state.held:
