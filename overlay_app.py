@@ -1,4 +1,4 @@
-"""在游戏中按住快捷键悬停查询，显示中英双语阅读浮卡。"""
+"""在游戏中开启悬停查询，显示中英双语阅读浮卡。"""
 
 from __future__ import annotations
 
@@ -785,9 +785,9 @@ class Overlay(QObject):
         self.events.status.connect(self.status, Qt.ConnectionType.QueuedConnection)
         self.events.ready.connect(self.start_hook, Qt.ConnectionType.QueuedConnection)
         self.keep_in_game = bool(self.settings.get("keep_in_game", True))
-        self.mode = self.settings.get("mode", "hover")
-        if self.mode not in ("hover", "click"):
-            self.mode = "hover"
+        self.mode = self.settings.get("mode", "toggle")
+        if self.mode not in ("toggle", "hover", "click"):
+            self.mode = "toggle"
         try:
             self.hover_delay = max(.3, min(2., float(self.settings.get("hover_delay", .6))))
         except (TypeError, ValueError):
@@ -810,6 +810,7 @@ class Overlay(QObject):
         self.next_art_refresh = 0
         self.last_pixel_ratio = None
         self.current_status = "正在启动……"
+        self.last_toggle_enabled = None
         self.current_capture_state = "等待准备完成"
         self.status_dialog = None
         icon = QPixmap(32, 32)
@@ -818,8 +819,18 @@ class Overlay(QObject):
         painter.setPen(QColor("#7de5bd"))
         painter.drawText(icon.rect(), Qt.AlignmentFlag.AlignCenter, "中")
         painter.end()
-        self.tray = QSystemTrayIcon(QIcon(icon), app)
+        self.idle_icon = QIcon(icon)
+        icon = QPixmap(32, 32)
+        icon.fill(QColor("#7de5bd"))
+        painter = QPainter(icon)
+        painter.setPen(QColor("#18232e"))
+        painter.drawText(icon.rect(), Qt.AlignmentFlag.AlignCenter, "查")
+        painter.end()
+        self.active_icon = QIcon(icon)
+        self.tray = QSystemTrayIcon(self.idle_icon, app)
         self.menu = QMenu()
+        self.mode_status = self.menu.addAction("悬停查询：已关闭")
+        self.mode_status.setEnabled(False)
         self.menu.addAction("设置查询快捷键", self.configure)
         self.menu.addAction("运行状态与准备", self.show_status)
         self.menu.addAction("关闭阅读浮卡", self.dismiss)
@@ -840,10 +851,10 @@ class Overlay(QObject):
             QTimer.singleShot(0, self.show_status)
 
     def make_hook(self):
-        if self.mode == "hover":
+        if self.mode in ("hover", "toggle"):
             hook = HoverTrigger(self.freeze_hover, self.events.status.emit,
                 shortcut=self.settings["shortcut"], delay=self.hover_delay,
-                dismiss_callback=self.events.dismissed.emit)
+                dismiss_callback=self.events.dismissed.emit, toggle=self.mode == "toggle")
         else:
             hook = MouseTrigger(self.freeze_click, self.events.status.emit, **self.settings,
                 dismiss_callback=self.events.dismissed.emit)
@@ -852,6 +863,8 @@ class Overlay(QObject):
         return hook
 
     def instruction(self):
+        if self.mode == "toggle":
+            return f"按一下 {self.settings['shortcut']} 开启／关闭，悬停 {self.hover_delay:g} 秒查询"
         if self.mode == "hover":
             return f"按住 {self.settings['shortcut']}，悬停 {self.hover_delay:g} 秒查询；松开关闭"
         return self.settings["shortcut"] + "+鼠标" + ("右键" if self.settings["button"] == "right" else "左键")
@@ -915,7 +928,7 @@ class Overlay(QObject):
         if self.args.diagnose_input and self.hook.last_click != self.last_input_diagnostic:
             self.last_input_diagnostic = self.hook.last_click
             print(f"输入诊断：{self.last_input_diagnostic}", flush=True)
-        if self.mode == "hover" and self.wanted and (not active or not self.hook.valid(self.hold_epoch)):
+        if self.mode in ("hover", "toggle") and self.wanted and (not active or not self.hook.valid(self.hold_epoch)):
             self.dismiss()
         elif self.mode == "click" and not active and self.wanted:
             # 组合点击保留原有切回游戏后恢复浮卡的行为。
@@ -943,9 +956,24 @@ class Overlay(QObject):
                 self.worker.art_jobs.put((self.request_id,self.popup.card_id))
         if self.wanted and self.capture_retry_at is not None and time.monotonic() >= self.capture_retry_at:
             self.capture_retry_at = None
-            if self.mode == "hover" and self.hook.valid(self.hold_epoch):
+            if self.mode in ("hover", "toggle") and self.hook.valid(self.hold_epoch):
                 self.hook.retry(self.hold_epoch)
         self.query_progress()
+        self.update_query_indicator()
+
+    def update_query_indicator(self):
+        self.mode_status.setVisible(self.mode == "toggle")
+        enabled = self.hook.enabled if self.mode == "toggle" else None
+        if enabled == self.last_toggle_enabled:
+            return
+        previous = self.last_toggle_enabled
+        self.last_toggle_enabled = enabled
+        self.tray.setIcon(self.active_icon if enabled else self.idle_icon)
+        if enabled is not None:
+            state = "已开启" if enabled else "已关闭"
+            self.mode_status.setText(f"悬停查询：{state}（{self.settings['shortcut']} 切换）")
+            if previous is not None:
+                self.status(f"悬停查询{state}" + ("，可以松手并悬停换牌" if enabled else ""))
 
     def query_progress(self):
         if not self.wanted or not self.recognition_pending:
@@ -971,7 +999,7 @@ class Overlay(QObject):
         self.worker.cancel(self.request_id)
         self.popup.request_id = self.request_id
         self.hold_epoch = None
-        if self.mode == "hover":
+        if self.mode in ("hover", "toggle"):
             self.hook.invalidate()
         self.popup_box = None
         self.wanted = False
@@ -1009,7 +1037,7 @@ class Overlay(QObject):
 
     @Slot(object)
     def query(self, request):
-        if self.mode == "hover" and not self.hook.valid(request.get("hold_epoch")):
+        if self.mode in ("hover", "toggle") and not self.hook.valid(request.get("hold_epoch")):
             return
         self.hold_epoch = request.get("hold_epoch")
         self.waiting_for_cache = False
@@ -1031,7 +1059,7 @@ class Overlay(QObject):
     def answer(self, payload):
         if payload["id"] != self.request_id or not self.wanted:
             return
-        if self.mode == "hover" and not self.hook.valid(self.hold_epoch):
+        if self.mode in ("hover", "toggle") and not self.hook.valid(self.hold_epoch):
             self.dismiss()
             return
         self.recognition_pending = False
@@ -1039,7 +1067,7 @@ class Overlay(QObject):
             height, width = payload["shape"]
             box = payload["result"]["box"]
             self.target_relative = relative_rect(box, (0,0,width,height))
-            if self.mode == "hover" and self.hook.bbox:
+            if self.mode in ("hover", "toggle") and self.hook.bbox:
                 self.hook.set_target(restore_rect(self.target_relative, self.hook.bbox))
         self.popup.show_result(payload)
         self.waiting_for_cache = not payload.get("card") and "error" not in payload
@@ -1061,7 +1089,7 @@ class Overlay(QObject):
         if not self.waiting_for_cache or not self.wanted:
             return
         changed = any(result.get(key) for key in ("added", "updated", "visual_rebuilt", "card_data_refreshed"))
-        if changed and self.mode == "hover" and self.hook.valid(self.hold_epoch):
+        if changed and self.mode in ("hover", "toggle") and self.hook.valid(self.hold_epoch):
             if self.hook.retry(self.hold_epoch):
                 self.waiting_for_cache = False
                 self.popup.loading(self.request_id, True)
@@ -1112,13 +1140,13 @@ class Overlay(QObject):
         dialog.setWindowTitle("PTCGLens 查询设置")
         form = QFormLayout(dialog)
         shortcut = QLineEdit(self.settings["shortcut"])
-        form.addRow("按住这些键", shortcut)
+        form.addRow("查询快捷键", shortcut)
         buttons = QComboBox()
         buttons.addItems(["鼠标右键", "鼠标左键"])
         buttons.setCurrentIndex(0 if self.settings["button"] == "right" else 1)
         modes = QComboBox()
-        modes.addItems(["按住快捷键并悬停（松开关闭）", "组合键加点击（再次查询或关闭）"])
-        modes.setCurrentIndex(0 if self.mode == "hover" else 1)
+        modes.addItems(["按一下开启／关闭，悬停换牌", "按住快捷键并悬停（松开关闭）", "组合键加点击（再次查询或关闭）"])
+        modes.setCurrentIndex(("toggle", "hover", "click").index(self.mode))
         form.addRow("查询方式", modes)
         delay = QDoubleSpinBox()
         delay.setRange(.3, 2.)
@@ -1134,7 +1162,8 @@ class Overlay(QObject):
         images.addItems(["优先简中卡面","优先英文高清原卡","仅本地游戏缓存"])
         images.setCurrentIndex(("zh","en","local").index(self.image_preference))
         form.addRow("卡图来源",images)
-        hint = QLabel("例如 Ctrl+Alt（Mac 为 Ctrl+Option）或 Ctrl+Shift+Q。\n悬停模式无需点击；点击模式仅拦截查询点击。")
+        hint = QLabel("例如 Ctrl+Alt（Mac 为 Ctrl+Option）或 Ctrl+Shift+Q。\n"
+                      "开关模式无需长按；Esc、关闭浮卡或切走游戏也会关闭查询模式。")
         form.addRow(hint)
         actions = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         form.addRow(actions)
@@ -1149,7 +1178,7 @@ class Overlay(QObject):
             previous_hook.stop()
             if previous_hook.ident is not None:
                 previous_hook.join(timeout=2)
-            self.mode = "hover" if modes.currentIndex() == 0 else "click"
+            self.mode = ("toggle", "hover", "click")[modes.currentIndex()]
             self.hover_delay = delay.value()
             self.settings = {"shortcut": shortcut.text().strip(), "button": "right" if buttons.currentIndex() == 0 else "left"}
             self.keep_in_game = inside.isChecked()
