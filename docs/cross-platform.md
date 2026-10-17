@@ -52,7 +52,7 @@ uv run ptcglens.py --overlay --cache-root "/实际卡图目录" --game-cache "/�
 
 `.github/workflows/tests.yml` 配置 Windows/macOS、Python 3.12/3.13 的测试矩阵。只有实际运行后的 CI 结果才算通过，提交代码不会自动产生已通过的结果。
 
-Windows 仍需真实游戏现场验收；Mac 的现场结果记录在下方。两边的无边框/全屏、多显示器不同缩放和长时间运行资源占用仍待检查。
+Windows 仍需真实游戏现场验收；Mac 已通过本机窗口模式、最小化恢复与原生全屏浮卡验收，现场结果记录在下方。多显示器不同缩放和长时间运行资源占用仍待检查。
 
 ### Mac 真实游戏验证（2026-10-17）
 
@@ -78,13 +78,14 @@ uv run python query_regression.py --cases tests/scenes/mac-live-cases.json --sam
 
 修复后已连续记录伊布悬停查询、双语内容和松开关闭；原生 `NSWindow` 确认在游戏当前桌面实际可见，用户也确认“看到了，松开关闭”。不能单独把 Qt 的 `isVisible()` 当作现场显示验收。`--diagnose-input` 支持输出悬停坐标、游戏前台、区域与遮挡状态。
 
-Python 3.12.9 和 3.13.5 均通过 136 项测试。Windows 游戏实机、Mac 游戏全屏、多显示器和长时间运行仍按上方边界保留待验收。
+该阶段 Python 3.12.9 和 3.13.5 均通过 136 项测试；后续全屏修复与扩充测试结果见下一节。
 
 ### Mac 可靠性与首次使用完善（2026-10-17）
 
 - 修正全屏切换时误选同名标题栏小窗的问题：忽略过小的系统辅助窗，并优先选择有实际标题的游戏主窗口。记录过的标题栏小窗为 1470×44 点，不能作为游戏采集目标。
 - 游戏最小化后暂停采集，用户恢复后已重新取得真实 2560×1440 帧，逻辑内容区域为 `(14,103)-(1294,823)`。用户已确认窗口内连续换卡和最小化恢复正常；多显示器和数小时运行仍未验证。
-- 两次全屏验收均未通过：快捷键与识别成功，但原生浮卡报告不在当前 Space，用户看不到。仅增加 `CanJoinAllApplications` 未解决；现场探针也记录到常规应用策略下，原生非激活面板样式仍不可见。后续已将浮卡进程设为 `NSApplicationActivationPolicyAccessory` 菜单栏辅助程序，并补充 `NSWindowStyleMaskNonactivatingPanel`；保留跨应用全屏集合行为，清除冲突角色。实际启动确认策略为 1、样式为 142，配置和不重复切换策略的测试已通过，修复后的全屏效果等待现场复测。依据：[Apple 窗口集合行为](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallapplications)、[辅助应用策略](https://developer.apple.com/documentation/appkit/nsapplication/activationpolicy-swift.enum/accessory)、[非激活面板](https://developer.apple.com/documentation/appkit/nswindow/stylemask-swift.struct/nonactivatingpanel)。
+- 修复跨应用全屏 Space 中浮卡不可见：仅设置跨桌面和全屏集合行为不足以让常规前台应用的浮卡显示。最终采用 `NSApplicationActivationPolicyAccessory` 菜单栏辅助程序、`NSWindowStyleMaskNonactivatingPanel` 原生非激活面板及跨应用全屏集合行为，清除冲突角色。实际启动确认策略为 1、样式为 142，配置和不重复切换策略的测试已通过。依据：[Apple 窗口集合行为](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallapplications)、[辅助应用策略](https://developer.apple.com/documentation/appkit/nsapplication/activationpolicy-swift.enum/accessory)、[非激活面板](https://developer.apple.com/documentation/appkit/nswindow/stylemask-swift.struct/nonactivatingpanel)。
+- 修复后全屏现场验收通过：游戏内容区域为 `(0,33)-(1470,956)`，按住时识别到 `me5_en_002`，原生窗口 `isOnActiveSpace`、可见遮挡状态均为真，松开后浮卡隐藏。用户确认“全屏浮卡可见，双语正常，松开关闭”。仅证明本机这轮原生全屏场景，不代表多显示器、所有缩放或长时运行均已验收。
 - 原生帧改为显式 RGBA 位图转换，处理预乘透明圆角，非预乘源保留 PNG 回退。对同一真实 2560×1496 CGImage，新旧 BGR 整帧逐像素一致；各转换 8 次的中位数为 PNG 184.50 ms、位图 37.31 ms。这只是转换步骤的测量，不代表整机 CPU、内存或长时稳定性验收。
 - 扩充 Mac 截图用例，新增五种同名伊布的英文规则核对，合计 52/52 点通过。各图像以四种比例回放，不等于真实系统缩放验收。样本与报告位于本地 `output/mac-validation-next/`。
 - 真实缓存回放：初始仅包含妙蛙种子、妙蛙草的索引，截图中的伊布为未确认；加入已缓存的伊布资源并增量刷新后，同一点正确识别。没有模拟下载速度，也不保证所有新卡第一次出现即可查询。
