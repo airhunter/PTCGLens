@@ -1,0 +1,79 @@
+{
+  "scenes": [
+    {
+      "id": "mac-battle-1280x748-retina",
+      "image": "mac-validation/client.png",
+      "scales": [
+        0.667,
+        0.8,
+        1,
+        1.333
+      ],
+      "points": [
+        {
+          "id": "own-active",
+          "point": [
+            1280,
+            840
+          ],
+          "name_en": "Okidogi"
+        },
+        {
+          "id": "own-bench",
+          "point": [
+            940,
+            1130
+          ],
+          "name_en": "Makuhita"
+        },
+        {
+          "id": "opponent-active",
+          "point": [
+            1280,
+            480
+          ],
+          "name_en": "Teal Mask Ogerpon ex"
+        },
+        {
+          "id": "opponent-discard",
+          "point": [
+            1500,
+            500
+          ],
+          "name_en": "Bug Catching Set"
+        },
+        {
+          "id": "hand-supporter",
+          "point": [
+            1030,
+            1420
+          ],
+          "name_en": "Lillie's Determination"
+        },
+        {
+          "id": "hand-item",
+          "point": [
+            1280,
+            1420
+          ],
+          "name_en": "Fighting Gong"
+        },
+        {
+          "id": "hand-energy",
+          "point": [
+            1520,
+            1420
+          ],
+          "name_en": "Basic {F} Energy"
+        },
+        {
+          "id": "background",
+          "point": [
+            100,
+            900
+          ]
+        }
+      ]
+    }
+  ]
+}

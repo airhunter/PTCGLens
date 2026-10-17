@@ -31,7 +31,9 @@ uv run ptcglens.py --overlay --check-permissions
 
 浮卡查询需要屏幕录制、辅助功能和输入监控权限，网页采集只检查屏幕录制权限。首次实际启动会调用系统授权提示；开发环境中需授权实际承载 Python 的终端或应用，授权后重新启动。检查命令只检查，不弹授权请求，也不需要卡牌索引。
 
-默认仅检查已知候选目录：卡图在 `~/Library/Caches/unity.pokemon.Pokemon TCG Live` 等 Unity 缓存位置，英文数据库在 `~/Library/Application Support/pokemon/Pokemon TCG Live/config-cache` 等位置。具体游戏安装的路径、缓存结构与标准标题栏高度仍需真实 Mac 游戏验证；不会扫描整个用户目录。默认路径不匹配时使用：
+例如从 ChatGPT 内启动时，系统可能将权限归属到 ChatGPT；仅开启桌面自动化工具的权限不会让 Python 后端获得权限。授权后应重启对应宿主应用，再重新运行检查命令。
+
+默认优先检查真实 Mac 游戏验证过的目录：卡图在 `~/Library/Caches/com.pokemon.pokemontcgl`，英文数据库在 `~/Library/Application Support/com.pokemon.pokemontcgl/config-cache`；也保留旧 Unity 路径作为候选。不会扫描整个用户目录。默认路径不匹配时使用：
 
 ```sh
 uv run python cache_watch.py --once --cache-root "/实际卡图目录" --game-cache "/实际数据库目录"
@@ -46,7 +48,26 @@ uv run ptcglens.py --overlay --cache-root "/实际卡图目录" --game-cache "/�
 
 `.github/workflows/tests.yml` 配置 Windows/macOS、Python 3.12/3.13 的测试矩阵。只有实际运行后的 CI 结果才算通过，提交代码不会自动产生已通过的结果。
 
-仍需两边真实游戏现场验收：缓存建立、窗口/无边框/全屏、后台遮挡、标题栏裁剪、多显示器不同缩放、连续查询、系统授权后重启，以及长时间运行的资源占用。目前没有在本次修改环境完成这些现场检查。
+Windows 仍需真实游戏现场验收；Mac 的现场结果记录在下方。两边的无边框/全屏、多显示器不同缩放和长时间运行资源占用仍待检查。
+
+### Mac 真实游戏验证（2026-10-17）
+
+在 Apple Silicon Mac 的实际游戏中完成以下检查，原始截图、日志与报告保存在本地 `output/mac-validation/`（不提交游戏截图）：
+
+- 发现实际缓存路径并修正默认值；首次建立 73 张卡的本地索引，随后实时更新至 81 张。英文资料和中文对照表正常加载。
+- ScreenCaptureKit 可采集 Retina 游戏窗口；授予辅助功能并重启后，内容区域正确排除标准标题栏，从 1280×748 点窗口得到 1280×720 点游戏区域。
+- 游戏处于后台时连续取得 26 帧；窗口切换到其他桌面不可见时停止采集并等待恢复。
+- 对实际对局截图验证己方战斗区/备战区、对方战斗区/弃牌区、手牌的支援者/物品/能量以及背景。8 个点分别按 4 个比例回放，32/32 正确，未误识别背景。该结果验证图像缩放，不代表已验收实际窗口缩放和全屏。
+- 对缺少中文效果的 Chikorita 自动发起翻译，结果回填双语浮卡，英文原文保留；已检查实际渲染截图。
+- 授权并重启后，屏幕录制、辅助功能、输入监控检查全部通过，原生浮卡程序成功启动。
+
+现场回放用例为 `tests/scenes/mac-live-cases.json`，需本地截图后运行：
+
+```sh
+uv run python query_regression.py --cases tests/scenes/mac-live-cases.json --sample-root output --output output/mac-validation/regression.json
+```
+
+修正默认路径后，Python 3.13.5 的 134 项测试通过。按键悬停与松开关闭仍需完成真实输入验收。
 
 ### 本次本地验证（2026-10-14）
 

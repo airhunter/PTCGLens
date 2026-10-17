@@ -66,6 +66,15 @@ class PlatformRoutingTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_shortcut("Alt+Option")
 
+    def test_mac_prefers_verified_bundle_cache_paths_over_legacy_candidates(self):
+        with TemporaryDirectory() as home:
+            cards = Path(home) / "Library/Caches/com.pokemon.pokemontcgl"
+            database = Path(home) / "Library/Application Support/com.pokemon.pokemontcgl/config-cache"
+            legacy = Path(home) / "Library/Caches/unity.pokemon.Pokemon TCG Live"
+            for folder in (cards, database, legacy):
+                folder.mkdir(parents=True)
+            self.assertEqual(cache_paths("darwin", home), (cards, database))
+
     def test_windows_key_polling_requires_exact_modifiers(self):
         native = load_windows_module("window")
         with patch.object(native.user32, "GetAsyncKeyState", side_effect=lambda key: 0x8000 if key in (0x11, 0x12) else 0):

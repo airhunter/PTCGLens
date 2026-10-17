@@ -9,10 +9,12 @@ def cache_paths(system=None, home=None):
     if system == "darwin":
         support = home / "Library/Application Support"
         caches = home / "Library/Caches"
-        cards = [caches / "unity.pokemon.Pokemon TCG Live",
+        cards = [caches / "com.pokemon.pokemontcgl",
+                 caches / "unity.pokemon.Pokemon TCG Live",
                  caches / "Unity/pokemon_Pokemon TCG Live",
                  support / "Unity/pokemon_Pokemon TCG Live"]
-        databases = [support / "pokemon/Pokemon TCG Live/config-cache",
+        databases = [support / "com.pokemon.pokemontcgl/config-cache",
+                     support / "pokemon/Pokemon TCG Live/config-cache",
                      support / "unity.pokemon.Pokemon TCG Live/config-cache",
                      support / "Pokemon TCG Live/config-cache"]
         return (next((p for p in cards if p.is_dir()), cards[0]),
