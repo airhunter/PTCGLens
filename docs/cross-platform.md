@@ -67,7 +67,14 @@ Windows 仍需真实游戏现场验收；Mac 的现场结果记录在下方。�
 uv run python query_regression.py --cases tests/scenes/mac-live-cases.json --sample-root output --output output/mac-validation/regression.json
 ```
 
-修正默认路径后，Python 3.13.5 的 134 项测试通过。按键悬停与松开关闭仍需完成真实输入验收。
+真实游戏验证定位并修复了两类浮卡问题：
+
+- Vibe Island 的透明悬浮窗口会被系统列为 `alpha=1` 的大矩形。Mac 后端在出现覆盖矩形时使用辅助功能实际命中所属应用判定，保留真实遮挡，并补充透明浮层、真实遮挡和命中失败的回归检查。
+- Mac 工具窗口默认会在应用失焦时隐藏。浮卡开启失焦仍显示，并通过原生后端设置跨桌面与全屏辅助窗口，保持非激活行为。该设置不等于已完成游戏全屏验收。
+
+修复后已连续记录伊布悬停查询、双语内容和松开关闭；原生 `NSWindow` 确认在游戏当前桌面实际可见，用户也确认“看到了，松开关闭”。不能单独把 Qt 的 `isVisible()` 当作现场显示验收。`--diagnose-input` 支持输出悬停坐标、游戏前台、区域与遮挡状态。
+
+Python 3.12.9 和 3.13.5 均通过 136 项测试。Windows 游戏实机、Mac 游戏全屏、多显示器和长时间运行仍按上方边界保留待验收。
 
 ### 本次本地验证（2026-10-14）
 

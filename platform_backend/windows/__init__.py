@@ -4,5 +4,5 @@ from .window import (visible_windows, game_window, client_bbox, set_dpi_awarenes
                      shortcut_pressed, capture_screen, check_permissions, popup_bounds, validate_shortcut, escape_pressed,
                      watch_capture, check_hotkeys)
 from .capture import WindowCaptureSession, crop_client_frame
-from .geometry import placement_geometry
+from .geometry import placement_geometry, configure_popup
 from .input import MouseTrigger

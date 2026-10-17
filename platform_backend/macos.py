@@ -8,6 +8,7 @@ from __future__ import annotations
 import threading
 import time
 import unicodedata
+from ctypes import c_void_p
 
 import AppKit
 import ApplicationServices as AX
@@ -130,14 +131,29 @@ def pointer_position():
 
 def pointer_over_window(hwnd, point):
     x, y = point
-    # CGWindowList 为前到后的顺序，排除被浮卡或其他应用遮住的区域。
+    hits = []
     for info in _windows():
         if info.get(CG.kCGWindowAlpha, 1) <= 0 or info.get(CG.kCGWindowLayer, 0) < 0:
             continue
         l, t, r, b = _rect(info)
         if l <= x < r and t <= y < b:
-            return info[CG.kCGWindowNumber] == hwnd
-    return False
+            hits.append(info)
+    if not hits:
+        return False
+    if hits[0][CG.kCGWindowNumber] == hwnd:
+        return True
+    # 窗口 alpha 只表示整体透明度，Vibe Island 等悬浮工具的透明区域仍可能
+    # 被列为 alpha=1 的大矩形。用实际 AX 命中所属应用排除可穿透的外框。
+    if not AX.AXIsProcessTrusted():
+        return False
+    error, element = AX.AXUIElementCopyElementAtPosition(AX.AXUIElementCreateSystemWide(), x, y, None)
+    if error or element is None:
+        return False
+    error, pid = AX.AXUIElementGetPid(element, None)
+    if error:
+        return False
+    hit = next((info for info in hits if info.get(CG.kCGWindowOwnerPID) == pid), None)
+    return hit is not None and hit[CG.kCGWindowNumber] == hwnd
 
 
 def shortcut_pressed(shortcut):
@@ -295,6 +311,19 @@ def placement_geometry(game_box, card_box, keep_in_game=True):
 
 def popup_bounds(native_id, logical_rect):
     return logical_rect
+
+
+def configure_popup(native_id):
+    from PySide6.QtGui import QGuiApplication
+    if QGuiApplication.platformName() != "cocoa":
+        return
+    # Qt 的 winId 是 NSView 指针，不是 CGWindowID。允许非激活浮卡跟随游戏
+    # 出现在其他桌面及全屏空间，而不是留在启动程序所在的桌面。
+    window = objc.objc_object(c_void_p=c_void_p(native_id)).window()
+    behavior = window.collectionBehavior() & ~AppKit.NSWindowCollectionBehaviorMoveToActiveSpace
+    window.setCollectionBehavior_(behavior | AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces |
+                                  AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary)
+    window.setHidesOnDeactivate_(False)
 
 
 class MouseTrigger(threading.Thread):

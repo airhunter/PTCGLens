@@ -323,6 +323,8 @@ class ReadingCard(QWidget):
         super().__init__(None, Qt.WindowType.Tool | Qt.WindowType.FramelessWindowHint |
                          Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.WindowDoesNotAcceptFocus)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        if sys.platform == "darwin":
+            self.setAttribute(Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow)
         self.area_size = (1000, 2000)
         self.art_pixmap = None
         self.body = None
@@ -364,6 +366,7 @@ class ReadingCard(QWidget):
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.outer.addWidget(self.scroll)
+        get_backend().configure_popup(int(self.winId()))
 
     def content(self):
         self.image = None
@@ -965,7 +968,7 @@ def main(argv=None):
     parser.add_argument("--cache-root", type=Path, default=DEFAULT_CARD_CACHE)
     parser.add_argument("--game-cache", type=Path, default=DEFAULT_DATABASE_CACHE)
     parser.add_argument("--translation-root", type=Path, default=ROOT / ".tmp/ptcg-live-zh-mod/databases_zh-CN")
-    parser.add_argument("--diagnose-input", action="store_true", help="在终端输出查询点击诊断")
+    parser.add_argument("--diagnose-input", action="store_true", help="在终端输出悬停或点击查询输入诊断")
     args = parser.parse_args(argv)
     if not (ROOT / "output/index/manifest.json").is_file() or not (ROOT / "output/card-data.json").is_file():
         parser.error("尚未建立索引；请先运行 uv run python cache_watch.py --once")

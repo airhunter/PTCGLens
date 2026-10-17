@@ -36,7 +36,7 @@ class PlatformRoutingTest(unittest.TestCase):
         for name in ("visible_windows", "game_window", "client_bbox", "is_foreground", "pointer_position",
                      "pointer_over_window", "shortcut_pressed", "validate_shortcut", "escape_pressed",
                      "capture_screen", "WindowCaptureSession", "crop_client_frame", "placement_geometry",
-                     "popup_bounds", "MouseTrigger", "check_permissions"):
+                     "popup_bounds", "configure_popup", "MouseTrigger", "check_permissions"):
             self.assertTrue(callable(getattr(backend, name)), name)
 
     def test_windows_legacy_hotkey_check_registers_and_releases_both_keys(self):
@@ -137,3 +137,28 @@ class MacCaptureTest(unittest.TestCase):
         self.backend.validate_shortcut("Ctrl+Option+L")
         with self.assertRaises(ValueError):
             self.backend.validate_shortcut("Ctrl+F24")
+
+    def test_transparent_overlay_rectangle_does_not_block_actual_game_hit(self):
+        b = self.backend
+        windows = [{b.CG.kCGWindowNumber: wid, b.CG.kCGWindowOwnerPID: pid,
+                    b.CG.kCGWindowLayer: layer, b.CG.kCGWindowAlpha: 1,
+                    b.CG.kCGWindowBounds: {"X": 0, "Y": 0, "Width": 800, "Height": 600}}
+                   for wid, pid, layer in ((70, 740, 27), (6185, 38179, 0))]
+        with patch.object(b, "_windows", return_value=windows), \
+             patch.object(b.AX, "AXIsProcessTrusted", return_value=True), \
+             patch.object(b.AX, "AXUIElementCopyElementAtPosition", return_value=(0, object())), \
+             patch.object(b.AX, "AXUIElementGetPid", return_value=(0, 38179)):
+            self.assertTrue(b.pointer_over_window(6185, (462, 423)))
+
+    def test_real_overlay_hit_and_failed_accessibility_remain_blocked(self):
+        b = self.backend
+        windows = [{b.CG.kCGWindowNumber: wid, b.CG.kCGWindowOwnerPID: pid,
+                    b.CG.kCGWindowBounds: {"X": 0, "Y": 0, "Width": 800, "Height": 600}}
+                   for wid, pid in ((70, 740), (6185, 38179))]
+        with patch.object(b, "_windows", return_value=windows), \
+             patch.object(b.AX, "AXIsProcessTrusted", return_value=True), \
+             patch.object(b.AX, "AXUIElementCopyElementAtPosition", return_value=(0, object())) as hit, \
+             patch.object(b.AX, "AXUIElementGetPid", return_value=(0, 740)):
+            self.assertFalse(b.pointer_over_window(6185, (462, 423)))
+            hit.return_value = (-25204, None)
+            self.assertFalse(b.pointer_over_window(6185, (462, 423)))

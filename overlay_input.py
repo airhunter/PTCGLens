@@ -114,7 +114,10 @@ class HoverTrigger(threading.Thread):
                 point = backend.pointer_position()
                 box = self.bbox
                 inside = bool(box and box[0] <= point[0] < box[2] and box[1] <= point[1] < box[3])
+                over_game = inside and backend.pointer_over_window(self.hwnd, point)
+                over_popup = self.popup_contains(point)
                 with self.lock:
+                    was_held = self.state.held
                     if self.hwnd != self.last_window and self.state.held:
                         self.state.reset()
                         self.state.blocked = True
@@ -130,9 +133,12 @@ class HoverTrigger(threading.Thread):
                         if self.dismiss_callback:
                             self.dismiss_callback()
                     action = self.state.step(time.monotonic(), pressed, active, point,
-                        over_game=inside and backend.pointer_over_window(self.hwnd, point),
-                        over_popup=self.popup_contains(point))
+                        over_game=over_game, over_popup=over_popup)
                     epoch = self.state.epoch
+                    if pressed or was_held:
+                        self.last_click = {"mode": "hover", "point": point, "pressed": pressed,
+                            "active": active, "inside": inside, "over_game": over_game,
+                            "over_popup": over_popup, "action": action}
                 if action == "dismiss" and self.dismiss_callback:
                     self.dismiss_callback()
                 elif action == "query":

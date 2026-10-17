@@ -24,6 +24,10 @@ def edges(rect):
     return rect.left(), rect.top(), rect.right()+1, rect.bottom()+1
 
 
+def configure_popup(native_id):
+    pass  # Windows 的 Qt 置顶与非激活标记已足够。
+
+
 def placement_geometry(game_box, card_box, keep_in_game=True):
     point = wintypes.POINT(round((card_box[0]+card_box[2])/2), round((card_box[1]+card_box[3])/2))
     monitor = user32.MonitorFromPoint(point, 2)
