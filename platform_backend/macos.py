@@ -135,6 +135,13 @@ def is_foreground(hwnd):
         return False
 
 
+def window_state():
+    # 后台监控线程需要逐轮释放 Cocoa 的临时对象。
+    with objc.autorelease_pool():
+        hwnd, _ = game_window()
+        return hwnd, client_bbox(hwnd), is_foreground(hwnd)
+
+
 def pointer_position():
     p = CG.CGEventGetLocation(CG.CGEventCreate(None))
     return round(p.x), round(p.y)

@@ -6,6 +6,7 @@ import json
 
 import cv2
 import numpy as np
+from query_control import check_query
 
 
 class LargeCardFinder:
@@ -22,11 +23,14 @@ class LargeCardFinder:
 
     def find(self, screenshot: np.ndarray, cards: dict,
              point: tuple[float, float] | None = None) -> dict | None:
+        check_query()
         points, descriptors = self.sift.detectAndCompute(cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY), None)
+        check_query()
         if descriptors is None:
             return None
         groups: dict[int, list] = {}
         for pair in self.matcher.knnMatch(descriptors, k=2):
+            check_query()
             if len(pair) != 2:
                 continue
             first, second = pair
@@ -35,6 +39,7 @@ class LargeCardFinder:
         height, width = screenshot.shape[:2]
         found = []
         for owner, matches in groups.items():
+            check_query()
             if len(matches) < 18:
                 continue
             record = self.records[owner]
@@ -42,6 +47,7 @@ class LargeCardFinder:
             # 同一卡图可同时出现在特写与手牌中；移除其他位置的内点后再寻找指向的实例。
             corners = None
             for _ in range(4 if point is not None else 1):
+                check_query()
                 if len(matches) < 18:
                     break
                 source = np.float32([record["points"][match.trainIdx - self.offsets[owner]]
@@ -100,11 +106,13 @@ class LargeCardFinder:
                         key=lambda owner:len(groups[owner]), reverse=True)[:8]
         proposals = []
         for owner in owners:
+            check_query()
             record = self.records[owner]
             pairs = cv2.BFMatcher(cv2.NORM_L2).knnMatch(descriptors, record["descriptors"], k=2)
             matches = [pair[0] for pair in pairs if len(pair)==2
                        and pair[0].distance < .72*pair[1].distance]
             for _ in range(4):
+                check_query()
                 if len(matches) < 18:
                     break
                 source = np.float32([record["points"][m.trainIdx] for m in matches]).reshape(-1,1,2)
@@ -168,6 +176,7 @@ class LargeCardFinder:
             owners.append(seed_owner)
         verified = []
         for owner in owners:
+            check_query()
             record = self.records[owner]
             pairs = cv2.BFMatcher(cv2.NORM_L2).knnMatch(local,record["descriptors"],k=2)
             good = [pair[0] for pair in pairs if len(pair)==2
@@ -214,6 +223,7 @@ class LargeCardFinder:
 
     def find_at(self, screenshot: np.ndarray, cards: dict, point: tuple[int, int]) -> dict | None:
         """只匹配覆盖鼠标点的卡牌，局部裁剪减少无关卡牌和计算量。"""
+        check_query()
         height, width = screenshot.shape[:2]
         x, y = point
         left, top = max(0, x - round(width * .23)), max(0, y - round(height * .5))

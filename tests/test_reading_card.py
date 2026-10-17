@@ -38,6 +38,21 @@ class ReadingCardTest(unittest.TestCase):
         self.assertIn("正在识别", self.popup.labels[0][0].text())
         self.popup.set_art(1, b"not an image")
 
+    def test_elapsed_loading_is_updated_without_replacing_card_result(self):
+        self.popup.loading_status(2.3)
+        self.assertIn("2.3 秒", self.popup.loading_label.text())
+        self.popup.show_result({"id": 2, "card": self.card})
+        self.assertIsNone(self.popup.loading_label)
+        self.popup.loading_status(4)
+        self.assertEqual(self.popup.card_id, "test_en_001")
+
+    def test_timeout_text_remains_visible_when_replacing_visible_loading(self):
+        self.popup.show()
+        self.app.processEvents()
+        self.popup.show_result({"id": 2, "error": "本次识别用时过长，已取消。可重新查询。"})
+        self.assert_content_fully_visible()
+        self.assertGreater(self.popup.scroll.height(), 40)
+
     def test_automatic_translation_preserves_english_and_ignores_old_results(self):
         self.card["attacks"][0]["text_en"] = "Original ability rule."
         self.popup.show_result({"id": 2, "card": self.card, "elapsed": 200})

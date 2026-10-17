@@ -9,6 +9,7 @@ import numpy as np
 
 from card_color import basic_energy_color_matches
 from global_cards import LargeCardFinder
+from query_control import check_query
 
 
 def card_rectangles(image):
@@ -16,9 +17,11 @@ def card_rectangles(image):
     gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
     rectangles=[]
     for low,high in ((30,90),(45,120),(60,160)):
+        check_query()
         edges=cv2.morphologyEx(cv2.Canny(gray,low,high),cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
         contours,_=cv2.findContours(edges,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
         for contour in contours:
+            check_query()
             x,y,w,h=cv2.boundingRect(contour)
             if (height*.07<h<height*.95 and w>width*.025 and .55<w/h<.9
                     and cv2.contourArea(contour)/(w*h)>.75):
@@ -49,6 +52,7 @@ def pointed_grid_box(image,point,rectangles=None):
     horizontal=[b for b in rectangles if b[0]<=px<b[0]+b[2]]
     vertical=[b for b in rectangles if b[1]<=py<b[1]+b[3]]
     for a in horizontal:
+        check_query()
         for b in vertical:
             if abs(a[2]-b[2])<max(4,a[2]*.08) and abs(a[3]-b[3])<max(6,a[3]*.08):
                 candidates.append((a[0],b[1],a[2],b[3]))
@@ -87,6 +91,7 @@ def partial_edge_boxes(image, point):
     sides = [cv2.boundingRect(c) for c in contours]
     sides = [(x, y) for x, y, w, h in sides if y+h >= height*.96]
     for left, top_left in sides:
+        check_query()
         for right, top_right in sides:
             if left < px < right:
                 top = min(top_left, top_right)
@@ -112,6 +117,7 @@ class GridCardFinder:
 
     def rank_candidates(self, observed, width):
         """复用小图参考，以同一逐通道相关系数筛选；不缓存截图或识别答案。"""
+        check_query()
         sample_width = min(width, 96)
         sample = cv2.resize(observed,
             (sample_width, max(1, round(observed.shape[0]*sample_width/width))),
@@ -125,6 +131,7 @@ class GridCardFinder:
         if matrix is None:
             rows=[]
             for _,reference in self.visuals:
+                check_query()
                 projected=cv2.resize(reference,(sample_width,round(sample_width*1.4)),
                     interpolation=cv2.INTER_AREA)
                 small=cv2.resize(projected[:visible_height],(32,small_height),interpolation=cv2.INTER_AREA)
@@ -145,6 +152,7 @@ class GridCardFinder:
         return sorted([(float(score),cid) for score,(cid,_) in zip(scores,self.visuals)],reverse=True)
 
     def reference(self,card_id,width,height):
+        check_query()
         key=(card_id,width,height)
         if key not in self.features:
             image=cv2.resize(self.references[card_id],(width,height),interpolation=cv2.INTER_AREA)
@@ -157,6 +165,7 @@ class GridCardFinder:
         return self.features[key]
 
     def find_at(self,image,point):
+        check_query()
         rectangles = card_rectangles(image)
         box=pointed_grid_box(image,point,rectangles)
         if box is not None:
@@ -167,6 +176,7 @@ class GridCardFinder:
         px,py = point
         direct = [b for b in rectangles if b[0]<=px<b[0]+b[2] and b[1]<=py<b[1]+b[3]]
         for x,y,w,h in sorted(direct,key=lambda b:b[2]*b[3])[:4]:
+            check_query()
             result = self.verify_box(image,point,[x,y,x+w,y+round(w*1.4)])
             if result:
                 return result
@@ -182,6 +192,7 @@ class GridCardFinder:
 
     def find_partial(self, image, point):
         for box in partial_edge_boxes(image, point):
+            check_query()
             result = self.verify_box(image, point, box)
             if result:
                 return result
@@ -229,6 +240,7 @@ class GridCardFinder:
 
     def verify_box(self,image,point,box):
         """卡框可来自网格或已有对局定位；允许完整卡框延伸到画面以外。"""
+        check_query()
         x,y,right,bottom=box
         width,height=right-x,bottom-y
         if width<24 or height<40 or x<0 or y<0 or right>image.shape[1]:
@@ -251,6 +263,7 @@ class GridCardFinder:
             return None
         verified=[]
         for score,card_id in ranked[:8]:
+            check_query()
             if score<ranked[0][0]-.15 or card_id not in self.cards:
                 continue
             reference,rd=self.reference(card_id,sample_width,sample_height)

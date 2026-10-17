@@ -8,6 +8,7 @@ from unittest.mock import patch
 import numpy as np
 
 from overlay_app import Recognizer
+from query_control import check_query
 
 
 class SignalRecorder:
@@ -21,6 +22,63 @@ class SignalRecorder:
 
 
 class QueryQueueTest(unittest.TestCase):
+    def test_running_query_stops_at_checkpoint_when_new_query_arrives(self):
+        worker = self.worker()
+        entered = threading.Event()
+        def recognize(image, point):
+            if int(image[0, 0, 0]) == 1:
+                entered.set()
+                while True:
+                    time.sleep(.005)
+                    check_query()
+            return {"status": "matched", "card_id": "2", "box": [0,0,10,10]}
+        worker.recognize = recognize
+        worker.connect_game = lambda: None
+        worker.background_jobs = lambda *args: None
+        worker.refresh_cache = lambda: None
+        resources = ([], {"2": {"card_id": "2"}}, None, None)
+        def request(number):
+            return {"screenshot": np.full((10,10,3), number, np.uint8), "point": (5,5),
+                    "bbox": (0,0,10,10), "started": time.perf_counter()}
+        with patch("overlay_app.set_dpi_awareness"), patch("overlay_app.load_resources", return_value=resources):
+            worker.start()
+            try:
+                self.assertTrue(worker.events.ready.emitted.wait(2))
+                worker.query(1, request(1))
+                self.assertTrue(entered.wait(2))
+                worker.query(2, request(2))
+                self.assertTrue(worker.events.answer.emitted.wait(1))
+            finally:
+                worker.stop_event.set()
+                worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual([v[0]["id"] for v in worker.events.answer.values], [2])
+
+    def test_timeout_returns_error_without_stopping_worker(self):
+        worker = self.worker()
+        worker.connect_game = lambda: None
+        worker.background_jobs = lambda *args: None
+        worker.refresh_cache = lambda: None
+        def recognize(image, point):
+            while True:
+                time.sleep(.005)
+                check_query()
+        worker.recognize = recognize
+        with patch("overlay_app.set_dpi_awareness"), \
+             patch("overlay_app.load_resources", return_value=([], {}, None, None)), \
+             patch("overlay_app.QUERY_TIMEOUT", .05):
+            worker.start()
+            try:
+                self.assertTrue(worker.events.ready.emitted.wait(2))
+                worker.query(1, {"screenshot": np.zeros((10,10,3),np.uint8), "point": (5,5),
+                                 "bbox": (0,0,10,10), "started": time.perf_counter()})
+                self.assertTrue(worker.events.answer.emitted.wait(1))
+                self.assertTrue(worker.is_alive())
+            finally:
+                worker.stop_event.set()
+                worker.join(2)
+        self.assertIn("用时过长", worker.events.answer.values[0][0]["error"])
+
     def worker(self):
         events = SimpleNamespace(**{name: SignalRecorder() for name in
                                   ("status", "ready", "answer", "art", "translated")})

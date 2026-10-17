@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+import cv2
 
 from PySide6.QtCore import QLockFile, QObject, QTimer, Qt, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPixmap
@@ -25,7 +26,7 @@ from card_data import build_card_data
 from card_translation import TranslationCache, readable_text
 from card_images import CardImageSources
 from grid_cards import GridCardFinder
-from live_capture import client_bbox, game_window, set_dpi_awareness, is_foreground, check_permissions
+from live_capture import client_bbox, game_window, set_dpi_awareness, check_permissions
 from overlay_input import MouseTrigger, HoverTrigger
 from platform_backend.paths import chinese_font_path
 from platform_backend import get_backend
@@ -36,6 +37,8 @@ from latest_jobs import LatestJobQueue
 from query_diagnostics import QueryFailureRecorder
 from atomic_json import read_json_retry, write_json_atomic
 from window_capture import WindowCaptureSession, crop_client_frame
+from query_control import QUERY_TIMEOUT, TIMEOUT_MESSAGE, QueryCancelled, check_query, query_scope
+from window_monitor import GameWindowMonitor
 
 
 ROOT = Path(__file__).resolve().parent
@@ -258,7 +261,10 @@ class Recognizer(threading.Thread):
                     # 一次查询使用同一份索引及卡牌资料；后台更新在下次查询生效。
                     self.query_resources = self.resources
                     index_revision = self.index_revision
-                    result = self.recognize(screenshot, local)
+                    with query_scope(lambda: request_id != self.latest_request or self.stop_event.is_set(),
+                                     started+QUERY_TIMEOUT):
+                        result = self.recognize(screenshot, local)
+                        check_query()
                     if request_id != self.latest_request or self.stop_event.is_set():
                         continue
                     _, cards, _, _ = self.query_resources
@@ -279,6 +285,8 @@ class Recognizer(threading.Thread):
                             print(f"查询诊断保存失败：{exc}", flush=True)
                     if card and request_id == self.latest_request:
                         self.art_jobs.put((request_id, card["card_id"]))
+                except QueryCancelled:
+                    continue
                 except Exception as exc:
                     if request_id == self.latest_request and not self.stop_event.is_set():
                         self.events.answer.emit({"id": request_id, "error": str(exc),
@@ -315,6 +323,7 @@ class Recognizer(threading.Thread):
             self.events.capture_state.emit(state)
 
     def recognize(self, screenshot, point):
+        check_query()
         resources = getattr(self, "query_resources", None) or self.resources
         visuals, cards, index, finder = resources
         if getattr(self,"grid_visuals",None) is not visuals:
@@ -323,10 +332,12 @@ class Recognizer(threading.Thread):
         else:
             self.grid_finder.cards=cards
         grid=self.grid_finder.find_at(screenshot,point)
+        check_query()
         if grid:
             return grid
         # SIFT 优先确认鼠标下的具体卡图，适用于出战、备战、手牌、牌库及特写。
         result = finder.find_at(screenshot, cards, point)
+        check_query()
         result = self.grid_finder.check_energy_result(screenshot, result)
         if result and result["status"] == "tentative" and result.get("polygon"):
             verified = self.grid_finder.verify_projected(screenshot,point,result["polygon"])
@@ -339,8 +350,10 @@ class Recognizer(threading.Thread):
         # 动画横幅可能遮住牌桌边框和卡牌上沿。布局只提议卡框，
         # 必须由鼠标所在卡面的严格图像复核确认，不能直接沿用卡位答案。
         layout = adaptive_layout(screenshot, self.layout)
+        check_query()
         x, y = point
         for slot in layout["slots"]:
+            check_query()
             if slot["key"] == "preview":
                 continue
             left, top, right, bottom = scaled_box(slot["box"], layout["reference_size"], screenshot.shape[:2])
@@ -352,6 +365,7 @@ class Recognizer(threading.Thread):
         if is_battle_screen(screenshot):
             x, y = point
             for slot in layout["slots"]:
+                check_query()
                 if slot["key"] == "preview":
                     continue  # 特写只能由实际检测到的卡框确认。
                 left, top, right, bottom = scaled_box(slot["box"], layout["reference_size"], screenshot.shape[:2])
@@ -405,6 +419,7 @@ class ReadingCard(QWidget):
         self.original_printing = ""
         self.pending_translations = set()
         self.cache_hint = None
+        self.loading_label = None
         self.compact_media = False
         self.text_labels = {}
         self.buttons = {}
@@ -435,6 +450,7 @@ class ReadingCard(QWidget):
         get_backend().configure_popup(int(self.winId()))
 
     def content(self):
+        self.loading_label = None
         self.cache_hint = None
         self.image = None
         self.art_pixmap = None
@@ -472,6 +488,9 @@ class ReadingCard(QWidget):
         self.labels.append((label, bold))
         self.body_widgets.append(label)
         (self.rules_layout or self.body_layout).addWidget(label)
+        # 可见浮卡替换内容时，Qt 会延后显示新子控件；先标为显示再测量，
+        # 否则错误/加载提示可能被算成零高度，只剩下浮卡标题栏。
+        label.show()
         return label
 
     def finish_content(self):
@@ -589,8 +608,14 @@ class ReadingCard(QWidget):
     def loading(self, request_id, ready):
         self.request_id = request_id
         self.content()
-        self.label("正在识别……" if ready else "正在准备……", True)
+        self.loading_label = self.label("正在识别……" if ready else "正在准备……", True)
+        self.label("可随时关闭浮卡，取消本次查询。")
         self.finish_content()
+
+    def loading_status(self, elapsed):
+        if self.loading_label is not None:
+            dots = "."*(int(elapsed*3)%3+1)
+            self.loading_label.setText(f"正在识别 {elapsed:.1f} 秒{dots}")
 
     def show_result(self, payload):
         if payload["id"] != self.request_id:
@@ -773,6 +798,7 @@ class Overlay(QObject):
         self.request_id = 0
         self.hold_epoch = None
         self.wanted = False
+        self.recognition_pending = False
         self.waiting_for_cache = False
         self.capture_retry_at = None
         self.capture_retries = 0
@@ -801,6 +827,8 @@ class Overlay(QObject):
         self.menu.addAction("退出 PTCGLens", app.quit)
         self.tray.setContextMenu(self.menu)
         self.tray.show()
+        self.window_monitor = GameWindowMonitor()
+        self.window_monitor.start()
         self.timer = QTimer()
         self.timer.timeout.connect(self.poll)
         self.timer.start(100)
@@ -883,15 +911,10 @@ class Overlay(QObject):
         self.status_dialog.raise_()
 
     def poll(self):
-        try:
-            hwnd, _ = game_window(None)
-            self.hook.hwnd, self.hook.bbox = hwnd, client_bbox(hwnd)
-        except (RuntimeError, OSError):
-            self.hook.hwnd, self.hook.bbox = None, None
+        self.hook.hwnd, self.hook.bbox, active = self.window_monitor.snapshot()
         if self.args.diagnose_input and self.hook.last_click != self.last_input_diagnostic:
             self.last_input_diagnostic = self.hook.last_click
             print(f"输入诊断：{self.last_input_diagnostic}", flush=True)
-        active = is_foreground(self.hook.hwnd)
         if self.mode == "hover" and self.wanted and (not active or not self.hook.valid(self.hold_epoch)):
             self.dismiss()
         elif self.mode == "click" and not active and self.wanted:
@@ -922,8 +945,28 @@ class Overlay(QObject):
             self.capture_retry_at = None
             if self.mode == "hover" and self.hook.valid(self.hold_epoch):
                 self.hook.retry(self.hold_epoch)
+        self.query_progress()
+
+    def query_progress(self):
+        if not self.wanted or not self.recognition_pending:
+            return
+        elapsed = time.perf_counter()-self.query_started
+        if elapsed < QUERY_TIMEOUT:
+            self.popup.loading_status(elapsed)
+            return
+        # 主线程的超时反馈独立于匹配线程。推进编号，迟到结果不能覆盖提示。
+        self.recognition_pending = False
+        self.request_id += 1
+        self.worker.cancel(self.request_id)
+        self.popup.request_id = self.request_id
+        self.waiting_for_cache = False
+        self.capture_retry_at = None
+        self.popup.show_result({"id": self.request_id, "error": TIMEOUT_MESSAGE})
+        self.reposition()
+        self.status("本次识别超时，已取消；可重新查询")
 
     def dismiss(self):
+        self.recognition_pending = False
         self.request_id += 1
         self.worker.cancel(self.request_id)
         self.popup.request_id = self.request_id
@@ -946,13 +989,16 @@ class Overlay(QObject):
         """钩子线程只取不可变帧引用和坐标，匹配及 UI 交给各自线程。"""
         started = time.perf_counter()
         hwnd = self.hook.hwnd
-        bbox, screenshot, error = self.hook.bbox, None, None
+        current_hwnd, bbox, _ = self.window_monitor.snapshot()
+        if current_hwnd != hwnd or hwnd is None or bbox is None:
+            return
+        screenshot, error = None, None
         try:
-            bbox = client_bbox(hwnd)
             session = self.worker.session
             latest = session.newest(0) if session and session.hwnd == hwnd and not session.closed else None
             screenshot = crop_client_frame(latest[1], hwnd, bbox=bbox, strict=True) if latest else None
-            if client_bbox(hwnd) != bbox:
+            current_hwnd, current_box, _ = self.window_monitor.snapshot()
+            if current_hwnd != hwnd or current_box != bbox:
                 screenshot = None
                 error = "窗口位置或尺寸已改变，请稍后再查询"
         except (RuntimeError, OSError) as exc:
@@ -970,6 +1016,7 @@ class Overlay(QObject):
         self.capture_retry_at = None
         x, y = request["point"]
         self.query_started = request["started"]
+        self.recognition_pending = True
         self.request_id += 1
         self.target_relative = relative_rect((x-10,y-10,x+10,y+10), request["bbox"])
         self.popup.loading(self.request_id, self.worker.ready)
@@ -987,6 +1034,7 @@ class Overlay(QObject):
         if self.mode == "hover" and not self.hook.valid(self.hold_epoch):
             self.dismiss()
             return
+        self.recognition_pending = False
         if "result" in payload:
             height, width = payload["shape"]
             box = payload["result"]["box"]
@@ -1124,12 +1172,14 @@ class Overlay(QObject):
 
     def stop(self):
         self.timer.stop()
+        self.window_monitor.stop()
         self.hook.stop()
         self.worker.stop_event.set()
         self.worker.refresh_requested.set()
         if self.hook.ident is not None:
             self.hook.join(timeout=2)
         self.worker.join(timeout=3)
+        self.window_monitor.join(timeout=.2)
         self.tray.hide()
 
 
@@ -1145,6 +1195,11 @@ def main(argv=None):
     app = QApplication(sys.argv[:1])
     configure_font(app)
     app.setQuitOnLastWindowClosed(False)
+    # 在后台采集和匹配启动前设置；给游戏及界面保留 CPU，避免占满所有核心。
+    cv2.setNumThreads(2)
+    if cv2.getNumThreads() > 2:
+        # Mac 的 GCD 后端忽略正数限制；0 可关闭其内部并行区域。
+        cv2.setNumThreads(0)
     missing = check_permissions(input_required=True, request=True)
     if missing:
         QMessageBox.warning(None, "PTCGLens · 需要系统权限", "\n\n".join(missing)+

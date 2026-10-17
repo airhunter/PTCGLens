@@ -122,6 +122,11 @@ def is_foreground(hwnd):
     return bool(hwnd and user32.GetForegroundWindow() == hwnd)
 
 
+def window_state():
+    hwnd, _ = game_window(None)
+    return hwnd, client_bbox(hwnd), is_foreground(hwnd)
+
+
 def pointer_position():
     point = wintypes.POINT()
     if not user32.GetCursorPos(ctypes.byref(point)):

@@ -33,7 +33,7 @@ class PlatformRoutingTest(unittest.TestCase):
 
     def test_native_backend_exports_real_entry_points(self):
         backend = get_backend()
-        for name in ("visible_windows", "game_window", "client_bbox", "is_foreground", "pointer_position",
+        for name in ("visible_windows", "game_window", "window_state", "client_bbox", "is_foreground", "pointer_position",
                      "pointer_over_window", "shortcut_pressed", "validate_shortcut", "escape_pressed",
                      "capture_screen", "WindowCaptureSession", "crop_client_frame", "placement_geometry",
                      "popup_bounds", "configure_popup", "MouseTrigger", "check_permissions"):
