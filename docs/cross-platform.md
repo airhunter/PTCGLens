@@ -84,7 +84,7 @@ Python 3.12.9 和 3.13.5 均通过 136 项测试。Windows 游戏实机、Mac �
 
 - 修正全屏切换时误选同名标题栏小窗的问题：忽略过小的系统辅助窗，并优先选择有实际标题的游戏主窗口。记录过的标题栏小窗为 1470×44 点，不能作为游戏采集目标。
 - 游戏最小化后暂停采集，用户恢复后已重新取得真实 2560×1440 帧，逻辑内容区域为 `(14,103)-(1294,823)`。用户已确认窗口内连续换卡和最小化恢复正常；多显示器和数小时运行仍未验证。
-- 首次全屏验收未通过：快捷键与识别成功，但原生浮卡报告不在当前 Space，用户看不到。现已增加 Apple 为跨应用全屏浮窗提供的 `CanJoinAllApplications`，并清除与之冲突的窗口角色；原生配置测试已通过，修复后的全屏效果等待现场复测。依据：[Apple 窗口集合行为文档](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallapplications)。
+- 两次全屏验收均未通过：快捷键与识别成功，但原生浮卡报告不在当前 Space，用户看不到。仅增加 `CanJoinAllApplications` 未解决；现场探针也记录到常规应用策略下，原生非激活面板样式仍不可见。后续已将浮卡进程设为 `NSApplicationActivationPolicyAccessory` 菜单栏辅助程序，并补充 `NSWindowStyleMaskNonactivatingPanel`；保留跨应用全屏集合行为，清除冲突角色。实际启动确认策略为 1、样式为 142，配置和不重复切换策略的测试已通过，修复后的全屏效果等待现场复测。依据：[Apple 窗口集合行为](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct/canjoinallapplications)、[辅助应用策略](https://developer.apple.com/documentation/appkit/nsapplication/activationpolicy-swift.enum/accessory)、[非激活面板](https://developer.apple.com/documentation/appkit/nswindow/stylemask-swift.struct/nonactivatingpanel)。
 - 原生帧改为显式 RGBA 位图转换，处理预乘透明圆角，非预乘源保留 PNG 回退。对同一真实 2560×1496 CGImage，新旧 BGR 整帧逐像素一致；各转换 8 次的中位数为 PNG 184.50 ms、位图 37.31 ms。这只是转换步骤的测量，不代表整机 CPU、内存或长时稳定性验收。
 - 扩充 Mac 截图用例，新增五种同名伊布的英文规则核对，合计 52/52 点通过。各图像以四种比例回放，不等于真实系统缩放验收。样本与报告位于本地 `output/mac-validation-next/`。
 - 真实缓存回放：初始仅包含妙蛙种子、妙蛙草的索引，截图中的伊布为未确认；加入已缓存的伊布资源并增量刷新后，同一点正确识别。没有模拟下载速度，也不保证所有新卡第一次出现即可查询。

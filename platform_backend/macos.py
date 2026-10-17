@@ -360,9 +360,15 @@ def configure_popup(native_id):
     from PySide6.QtGui import QGuiApplication
     if QGuiApplication.platformName() != "cocoa":
         return
-    # Qt 的 winId 是 NSView 指针，不是 CGWindowID。FullScreenAuxiliary 只描述
-    # 本应用的辅助窗口；跨应用全屏还需 CanJoinAllApplications（macOS 13+）。
+    # 悬停浮卡是菜单栏辅助程序。常规前台应用的窗口即使加入所有 Space，
+    # 也仍可能被排除在其他应用的原生全屏 Space 外。
+    application = AppKit.NSApplication.sharedApplication()
+    if application.activationPolicy() != AppKit.NSApplicationActivationPolicyAccessory:
+        application.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)
+    # Qt 的 winId 是 NSView 指针，不是 CGWindowID；Qt 的拒绝焦点标记不会
+    # 自动设置原生非激活面板样式，滚动或点浮卡时也不能激活应用并切走游戏。
     window = objc.objc_object(c_void_p=c_void_p(native_id)).window()
+    window.setStyleMask_(window.styleMask() | AppKit.NSWindowStyleMaskNonactivatingPanel)
     excluded = (AppKit.NSWindowCollectionBehaviorMoveToActiveSpace |
                 AppKit.NSWindowCollectionBehaviorPrimary |
                 AppKit.NSWindowCollectionBehaviorAuxiliary |

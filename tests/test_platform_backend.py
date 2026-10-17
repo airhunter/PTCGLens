@@ -116,6 +116,9 @@ class MacCaptureTest(unittest.TestCase):
     def test_popup_can_join_other_apps_fullscreen_without_conflicting_roles(self):
         b = self.backend
         window = Mock()
+        window.styleMask.return_value = 14
+        application = Mock()
+        application.activationPolicy.return_value = b.AppKit.NSApplicationActivationPolicyRegular
         window.collectionBehavior.return_value = (b.AppKit.NSWindowCollectionBehaviorPrimary |
             b.AppKit.NSWindowCollectionBehaviorAuxiliary |
             b.AppKit.NSWindowCollectionBehaviorMoveToActiveSpace |
@@ -124,14 +127,24 @@ class MacCaptureTest(unittest.TestCase):
         view = Mock()
         view.window.return_value = window
         with patch("PySide6.QtGui.QGuiApplication.platformName", return_value="cocoa"), \
+             patch.object(b.AppKit, "NSApplication", Mock(sharedApplication=Mock(return_value=application))), \
              patch.object(b.objc, "objc_object", return_value=view):
             b.configure_popup(123)
+        application.setActivationPolicy_.assert_called_once_with(b.AppKit.NSApplicationActivationPolicyAccessory)
+        window.setStyleMask_.assert_called_once_with(14 | b.AppKit.NSWindowStyleMaskNonactivatingPanel)
         window.setCollectionBehavior_.assert_called_once_with(
             b.AppKit.NSWindowCollectionBehaviorCanJoinAllSpaces |
             b.AppKit.NSWindowCollectionBehaviorCanJoinAllApplications |
             b.AppKit.NSWindowCollectionBehaviorFullScreenAuxiliary)
         window.setHidesOnDeactivate_.assert_called_once_with(False)
         window.makeKeyAndOrderFront_.assert_not_called()
+        application.activateIgnoringOtherApps_.assert_not_called()
+        application.activationPolicy.return_value = b.AppKit.NSApplicationActivationPolicyAccessory
+        with patch("PySide6.QtGui.QGuiApplication.platformName", return_value="cocoa"), \
+             patch.object(b.AppKit, "NSApplication", Mock(sharedApplication=Mock(return_value=application))), \
+             patch.object(b.objc, "objc_object", return_value=view):
+            b.configure_popup(123)
+        application.setActivationPolicy_.assert_called_once()
 
     def test_native_cgimage_decodes_to_bgr_without_color_changes(self):
         import cv2
