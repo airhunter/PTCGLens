@@ -39,6 +39,7 @@ from atomic_json import read_json_retry, write_json_atomic
 from window_capture import WindowCaptureSession, crop_client_frame
 from query_control import QUERY_TIMEOUT, TIMEOUT_MESSAGE, QueryCancelled, check_query, query_scope
 from window_monitor import GameWindowMonitor
+from console_log import log
 
 
 ROOT = Path(__file__).resolve().parent
@@ -134,9 +135,9 @@ class Recognizer(threading.Thread):
                             and self.last_art != (request_id,art)):
                         self.last_art = (request_id,art)
                         self.events.art.emit(request_id, art)
-                        print(f"卡图已更新：{card_id}，{art['language']}，{art['provider']}",flush=True)
+                        log(f"卡图已更新：{card_id}，{art['language']}，{art['provider']}")
                 except Exception as exc:
-                    print(f"卡图加载暂不可用：{card_id}，{exc}",flush=True)
+                    log(f"卡图加载暂不可用：{card_id}，{exc}")
 
     def refresh_cache(self):
         last_refresh = float("-inf")
@@ -276,13 +277,13 @@ class Recognizer(threading.Thread):
                     self.events.answer.emit({"id": request_id, "card": card, "result": result,
                                              "bbox": bbox, "shape": screenshot.shape[:2], "elapsed": elapsed,
                                              "checking_cache": card is None, "index_revision": index_revision})
-                    print(f"查询 {request_id}：{result.get('status')} {result.get('card_id', '')}，{elapsed} ms", flush=True)
+                    log(f"查询 {request_id}：{result.get('status')} {result.get('card_id', '')}，{elapsed} ms")
                     if self.args.diagnose_input or result.get("status") != "matched":
                         try:
                             self.diagnostics.save(screenshot, {"request_id": request_id,
                                 "point": local, "bbox": bbox, "shape": screenshot.shape[:2], "result": result})
                         except Exception as exc:
-                            print(f"查询诊断保存失败：{exc}", flush=True)
+                            log(f"查询诊断保存失败：{exc}")
                     if card and request_id == self.latest_request:
                         self.art_jobs.put((request_id, card["card_id"]))
                 except QueryCancelled:
@@ -879,7 +880,7 @@ class Overlay(QObject):
         if self.status_dialog is not None:
             self.status_label.setText(text)
         self.tray.setToolTip(f"PTCGLens · {self.instruction()}\n{text}"[:127])
-        print(text, flush=True)
+        log(text)
 
     @Slot(str)
     def capture_state(self, text):
@@ -927,7 +928,7 @@ class Overlay(QObject):
         self.hook.hwnd, self.hook.bbox, active = self.window_monitor.snapshot()
         if self.args.diagnose_input and self.hook.last_click != self.last_input_diagnostic:
             self.last_input_diagnostic = self.hook.last_click
-            print(f"输入诊断：{self.last_input_diagnostic}", flush=True)
+            log(f"输入诊断：{self.last_input_diagnostic}")
         if self.mode in ("hover", "toggle") and self.wanted and (not active or not self.hook.valid(self.hold_epoch)):
             self.dismiss()
         elif self.mode == "click" and not active and self.wanted:
@@ -1081,8 +1082,8 @@ class Overlay(QObject):
         self.reposition()
         self.status(f"本次查询已完成：{payload.get('elapsed', '—')} ms")
         if "elapsed" in payload:
-            print(f"浮卡已显示：查询 {payload['id']}，点击至界面更新 "
-                  f"{round((time.perf_counter()-self.query_started)*1000)} ms", flush=True)
+            log(f"浮卡已显示：查询 {payload['id']}，点击至界面更新 "
+                f"{round((time.perf_counter()-self.query_started)*1000)} ms")
 
     @Slot(object)
     def cache_checked(self, result):
@@ -1238,7 +1239,7 @@ def main(argv=None):
     instance_lock = QLockFile(str(ROOT / "output/overlay.lock"))
     instance_lock.setStaleLockTime(0)
     if not instance_lock.tryLock(0):
-        print("游戏内快捷查询已经运行，请使用系统托盘中的 PTCGLens 图标。", flush=True)
+        log("游戏内快捷查询已经运行，请使用系统托盘中的 PTCGLens 图标。")
         return 1
     overlay = Overlay(app, args)
     try:

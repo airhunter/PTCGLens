@@ -1,6 +1,7 @@
 import threading
 import time
 import unittest
+import io
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -22,6 +23,41 @@ class SignalRecorder:
 
 
 class QueryQueueTest(unittest.TestCase):
+    def test_non_utf8_logging_keeps_single_answer_and_enqueues_card_art(self):
+        for encoding in ("cp1252", "ascii"):
+            with self.subTest(encoding=encoding):
+                worker = self.worker()
+                worker.args.diagnose_input = True
+                worker.connect_game = lambda: None
+                worker.background_jobs = lambda *args: None
+                worker.refresh_cache = lambda: None
+                worker.recognize = lambda *args: {"status": "matched", "card_id": "correct"}
+                worker.diagnostics.save = lambda *args: (_ for _ in ()).throw(PermissionError("sharing conflict"))
+                resources = ([], {"correct": {"card_id": "correct"}}, None, None)
+                request = {"screenshot": np.zeros((10,10,3),np.uint8), "point": (5,5),
+                           "bbox": (0,0,10,10), "started": time.perf_counter()}
+                art_enqueued = threading.Event()
+                put = worker.art_jobs.put
+                def enqueue(job):
+                    put(job)
+                    art_enqueued.set()
+                worker.art_jobs.put = enqueue
+                with io.TextIOWrapper(io.BytesIO(), encoding=encoding) as stream, \
+                     patch("sys.stdout", stream), patch("overlay_app.set_dpi_awareness"), \
+                     patch("overlay_app.load_resources", return_value=resources):
+                    worker.start()
+                    try:
+                        self.assertTrue(worker.events.ready.emitted.wait(2))
+                        worker.query(1, request)
+                        self.assertTrue(art_enqueued.wait(2))
+                    finally:
+                        worker.stop_event.set()
+                        worker.join(2)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(len(worker.events.answer.values), 1)
+                self.assertEqual(worker.events.answer.values[0][0]["card"]["card_id"], "correct")
+                self.assertEqual(worker.art_jobs.get_nowait(), (1, "correct"))
+
     def test_running_query_stops_at_checkpoint_when_new_query_arrives(self):
         worker = self.worker()
         entered = threading.Event()
