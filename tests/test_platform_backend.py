@@ -202,10 +202,81 @@ class MacCaptureTest(unittest.TestCase):
         b = self.backend
         session = object.__new__(b.WindowCaptureSession)
         session._closed, session._lock = threading.Event(), threading.Lock()
+        session._active = threading.Event()
+        session._active.set()
         session._sequence, session._frame = 1, np.zeros((2,2,3),np.uint8)
         self.assertIsNotNone(session.newest(0))
         session._closed.set()
         self.assertIsNone(session.newest(0))
+
+    def test_paused_mac_capture_discards_old_frame_and_requires_fresh_resume(self):
+        import threading
+        b=self.backend
+        session=object.__new__(b.WindowCaptureSession)
+        session._closed,session._lock=threading.Event(),threading.Lock()
+        session._active,session._wake=threading.Event(),threading.Event()
+        session._active.set()
+        session._generation=0
+        session._sequence,session._frame=1,np.ones((2,2,3),np.uint8)
+        session.set_active(False)
+        self.assertIsNone(session.newest(0))
+        self.assertIsNone(session._frame)
+        paused_generation=session._generation
+        session.set_active(True)
+        self.assertGreater(session._generation,paused_generation)
+        self.assertIsNone(session.newest(0))
+        session._sequence,session._frame=2,np.full((2,2,3),2,np.uint8)
+        self.assertEqual(session.newest(0)[0],2)
+
+    def test_mac_capture_drops_inflight_frame_across_pause_and_resume(self):
+        import threading
+        import time
+        b=self.backend
+        session=object.__new__(b.WindowCaptureSession)
+        session.hwnd,session.error=1,None
+        session._closed,session._lock=threading.Event(),threading.Lock()
+        session._active,session._wake=threading.Event(),threading.Event()
+        session._active.set()
+        session._generation,session._sequence,session._frame=0,0,None
+        first_started,second_started=threading.Event(),threading.Event()
+        first_release,second_release=threading.Event(),threading.Event()
+        calls=[]
+        def capture(*args):
+            calls.append(1)
+            if len(calls)==1:
+                first_started.set()
+                first_release.wait(2)
+                return np.ones((20,20,3),np.uint8)
+            second_started.set()
+            second_release.wait(2)
+            return np.full((20,20,3),2,np.uint8)
+        session._thread=threading.Thread(target=session._run,args=(.1,),daemon=True)
+        with patch.object(b,"_filter",return_value=object()), \
+             patch.object(b,"_info",return_value={}), patch.object(b,"_rect",return_value=(0,0,20,20)), \
+             patch.object(b,"client_bbox",return_value=(0,0,20,20)), patch.object(b,"_capture",side_effect=capture):
+            session._thread.start()
+            try:
+                self.assertTrue(first_started.wait(2))
+                session.set_active(False)
+                session.set_active(True)
+                first_release.set()
+                self.assertTrue(second_started.wait(2))
+                self.assertIsNone(session.newest(0))  # 第一帧属于旧会话，不能复用。
+                second_release.set()
+                deadline=time.monotonic()+2
+                while session.newest(0) is None and time.monotonic()<deadline:
+                    time.sleep(.005)
+                self.assertEqual(int(session.newest(0)[1][0,0,0]),2)
+                session.set_active(False)
+                time.sleep(.03)  # 允许已在途的采集退出；不能继续启动新采集。
+                count=len(calls)
+                time.sleep(.15)
+                self.assertEqual(len(calls),count)
+            finally:
+                first_release.set()
+                second_release.set()
+                session.stop()
+        self.assertFalse(session._thread.is_alive())
 
     def test_mac_shortcuts_reject_unavailable_function_keys(self):
         self.backend.validate_shortcut("Ctrl+Option+L")

@@ -14,6 +14,12 @@ from query_control import check_query
 
 def card_rectangles(image):
     height,width=image.shape[:2]
+    if max(height,width)>1600:
+        scale=1600/max(height,width)
+        small=cv2.resize(image,(round(width*scale),round(height*scale)),interpolation=cv2.INTER_AREA)
+        sx,sy=small.shape[1]/width,small.shape[0]/height
+        return [(round(x/sx),round(y/sy),round((x+w)/sx)-round(x/sx),round((y+h)/sy)-round(y/sy))
+                for x,y,w,h in card_rectangles(small)]
     gray=cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
     rectangles=[]
     for low,high in ((30,90),(45,120),(60,160)):
@@ -73,6 +79,12 @@ def pointed_grid_box(image,point,rectangles=None):
 def partial_edge_boxes(image, point):
     """从靠近画面下沿的轮廓或两条竖边恢复截断卡框，仅提供复核候选。"""
     height, width = image.shape[:2]
+    if max(height,width)>1600:
+        scale=1600/max(height,width)
+        small=cv2.resize(image,(round(width*scale),round(height*scale)),interpolation=cv2.INTER_AREA)
+        sx,sy=small.shape[1]/width,small.shape[0]/height
+        boxes=partial_edge_boxes(small,(point[0]*sx,point[1]*sy))
+        return [[round(v/(sx if i%2==0 else sy)) for i,v in enumerate(box)] for box in boxes]
     px, py = point
     if py < height*.5:
         return []
@@ -114,6 +126,13 @@ class GridCardFinder:
         self.sift=cv2.SIFT_create(nfeatures=600)
         self.features={}
         self.ranking_templates=OrderedDict()
+
+    def update_visuals(self, visuals, cards):
+        references = dict(visuals)
+        self.features = {key:value for key,value in self.features.items()
+                         if references.get(key[0]) is self.references.get(key[0])}
+        self.visuals, self.cards, self.references = visuals, cards, references
+        self.ranking_templates.clear()
 
     def rank_candidates(self, observed, width):
         """复用小图参考，以同一逐通道相关系数筛选；不缓存截图或识别答案。"""
@@ -164,7 +183,7 @@ class GridCardFinder:
             self.features[key]=(np.float32([p.pt for p in points]),descriptors)
         return self.features[key]
 
-    def find_at(self,image,point):
+    def find_at(self,image,point,feature_finder=None):
         check_query()
         rectangles = card_rectangles(image)
         box=pointed_grid_box(image,point,rectangles)
@@ -177,6 +196,20 @@ class GridCardFinder:
         direct = [b for b in rectangles if b[0]<=px<b[0]+b[2] and b[1]<=py<b[1]+b[3]]
         for x,y,w,h in sorted(direct,key=lambda b:b[2]*b[3])[:4]:
             check_query()
+            if feature_finder is not None:
+                observed = image[y:min(image.shape[0],y+round(w*1.4)),x:x+w]
+                ranked = self.rank_candidates(observed,w)
+                if ranked and ranked[0][0] < .65:
+                    # 场地卡等浅色卡面容易只检测到外侧阴影。先在小范围
+                    # 找回实际卡框，再严格复核；不对错误卡框逐张做 SIFT。
+                    localized = feature_finder.find_in_box(image,self.cards,point,[x,y,x+w,y+h])
+                    if localized:
+                        verified = self.verify_box(image,point,localized["box"])
+                        if verified:
+                            return verified
+                        verified = self.verify_projected(image,point,localized["polygon"])
+                        if verified:
+                            return verified
             result = self.verify_box(image,point,[x,y,x+w,y+round(w*1.4)])
             if result:
                 return result

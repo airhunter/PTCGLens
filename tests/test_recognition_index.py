@@ -5,12 +5,43 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
+import cv2
 
 from recognition_index import FeatureIndex, compact_records
+from battle_live import load_resources
+from cache_search import read_image
 from test_pointer_recognition import texture
 
 
 class RecognitionIndexTest(unittest.TestCase):
+    def test_reload_reuses_unchanged_images_and_compact_features(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory)
+            records=[{"card_id":cid,"file":f"{cid}.npz"} for cid in ("one","two","three")]
+            manifest=root/"manifest.json"
+            manifest.write_text(json.dumps({"cards":records[:2]}))
+            data=root/"cards.json"
+            data.write_text(json.dumps({"cards":{r["card_id"]:{} for r in records}}))
+            for i,record in enumerate(records):
+                cv2.imwrite(str(root/f'{record["card_id"]}.png'),texture(10+i))
+            first=load_resources(root,root,data)
+            manifest.write_text(json.dumps({"cards":records}))
+            with patch("battle_live.read_image",wraps=read_image) as read:
+                second=load_resources(root,root,data,previous=first)
+            self.assertEqual([call.args[0].stem for call in read.call_args_list],["three"])
+            old_images,new_images=dict(first[0]),dict(second[0])
+            self.assertIs(new_images["one"],old_images["one"])
+            old_features={r["card_id"]:r for r in first[3].records}
+            new_features={r["card_id"]:r for r in second[3].records}
+            self.assertIs(new_features["one"],old_features["one"])
+            # 源资源更新，即使缩略图本身未变，也必须重新加载并计算。
+            records[0]["bundle_mtime_ns"]=123
+            manifest.write_text(json.dumps({"cards":records}))
+            third=load_resources(root,root,data,previous=second)
+            changed={r["card_id"]:r for r in third[3].records}
+            self.assertIsNot(changed["one"],new_features["one"])
+            self.assertIs(changed["two"],new_features["two"])
+
     def test_membership_does_not_read_missing_feature_files(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

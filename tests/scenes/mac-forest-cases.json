@@ -1,0 +1,112 @@
+{
+  "scenes": [
+    {
+      "id": "mac-forest-failure-25",
+      "image": "timeout-investigation-2/slow-25.png",
+      "scales": [
+        0.667,
+        1,
+        1.333
+      ],
+      "points": [
+        {
+          "id": "stadium",
+          "point": [
+            980,
+            644
+          ],
+          "name_en": "Forest of Vitality",
+          "rules_card_id": "me1_en_117"
+        },
+        {
+          "id": "preview",
+          "point": [
+            400,
+            500
+          ],
+          "name_en": "Forest of Vitality",
+          "rules_card_id": "me1_en_117"
+        },
+        {
+          "id": "background",
+          "point": [
+            850,
+            650
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mac-forest-failure-28",
+      "image": "timeout-investigation-2/slow-28.png",
+      "scales": [
+        0.667,
+        1,
+        1.333
+      ],
+      "points": [
+        {
+          "id": "stadium",
+          "point": [
+            976,
+            600
+          ],
+          "name_en": "Forest of Vitality",
+          "rules_card_id": "me1_en_117"
+        },
+        {
+          "id": "preview",
+          "point": [
+            400,
+            500
+          ],
+          "name_en": "Forest of Vitality",
+          "rules_card_id": "me1_en_117"
+        },
+        {
+          "id": "background",
+          "point": [
+            850,
+            650
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mac-forest-failure-31",
+      "image": "timeout-investigation-2/slow-31.png",
+      "scales": [
+        0.667,
+        1,
+        1.333
+      ],
+      "points": [
+        {
+          "id": "stadium",
+          "point": [
+            962,
+            676
+          ],
+          "name_en": "Forest of Vitality",
+          "rules_card_id": "me1_en_117"
+        },
+        {
+          "id": "preview",
+          "point": [
+            400,
+            500
+          ],
+          "name_en": "Forest of Vitality",
+          "rules_card_id": "me1_en_117"
+        },
+        {
+          "id": "background",
+          "point": [
+            850,
+            650
+          ]
+        }
+      ]
+    }
+  ]
+}

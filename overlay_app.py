@@ -75,6 +75,7 @@ class Recognizer(threading.Thread):
         self.index_revision = 0
         self.last_capture_state = None
         self.session = None
+        self.capture_active = True
         self.ready = False
         self.latest_request = 0
         self.translator = TranslationCache(ROOT / "output/translation-cache.json")
@@ -171,7 +172,7 @@ class Recognizer(threading.Thread):
         previous = self.resources
         if any(refreshed[key] for key in ("added", "updated", "visual_rebuilt")):
             replacement = load_resources(ROOT / "output/index", ROOT / "output/card-thumbnails",
-                                         ROOT / "output/card-data.json")
+                                         ROOT / "output/card-data.json", previous=previous)
         else:
             cards = read_json_retry(ROOT / "output/card-data.json")["cards"]
             replacement = (previous[0], cards, previous[2], previous[3])
@@ -338,25 +339,37 @@ class Recognizer(threading.Thread):
         if failure:
             raise RuntimeError(failure)
         if hwnd and not self.session:
-            self.session = WindowCaptureSession(hwnd, .1)
-        state = ("正在接收游戏画面" if self.session and self.session.newest(0) else
+            self.session = WindowCaptureSession(hwnd, .25 if sys.platform == "darwin" else .1)
+        if self.session is not None and sys.platform == "darwin":
+            self.session.set_active(self.capture_active)
+        state = ("查询关闭，已暂停采集" if self.session and sys.platform == "darwin" and not self.capture_active else
+                 "正在接收游戏画面" if self.session and self.session.newest(0) else
                  "正在等待第一帧游戏画面" if hwnd else
                  "等待游戏窗口：请启动或恢复游戏，并切换到游戏所在桌面")
         if state != self.last_capture_state:
             self.last_capture_state = state
             self.events.capture_state.emit(state)
 
+    def set_capture_active(self, active):
+        self.capture_active = active
+        session = self.session
+        if session is not None and sys.platform == "darwin":
+            session.set_active(active)
+
     def recognize(self, screenshot, point):
         check_query()
         resources = getattr(self, "query_resources", None) or self.resources
         visuals, cards, index, finder = resources
         if getattr(self,"grid_visuals",None) is not visuals:
-            self.grid_finder=GridCardFinder(visuals,cards)
+            if getattr(self,"grid_finder",None) is None:
+                self.grid_finder=GridCardFinder(visuals,cards)
+            else:
+                self.grid_finder.update_visuals(visuals,cards)
             self.grid_visuals=visuals
         else:
             self.grid_finder.cards=cards
         self.query_phase = "卡框检测与图像复核"
-        grid=self.grid_finder.find_at(screenshot,point)
+        grid=self.grid_finder.find_at(screenshot,point,finder)
         check_query()
         if grid:
             return grid
@@ -822,6 +835,7 @@ class Overlay(QObject):
             self.hover_delay = .6
         self.settings = {key: self.settings[key] for key in ("shortcut", "button")}
         self.hook = self.make_hook()
+        self.worker.set_capture_active(self.mode == "click")
         self.hook.popup_hwnd = int(self.popup.winId())
         self.request_id = 0
         self.hold_epoch = None
@@ -869,6 +883,7 @@ class Overlay(QObject):
         self.window_monitor = GameWindowMonitor()
         self.window_monitor.start()
         self.timer = QTimer()
+        self.last_ui_poll = time.perf_counter()
         self.timer.timeout.connect(self.poll)
         self.timer.start(100)
         app.aboutToQuit.connect(self.stop)
@@ -952,7 +967,13 @@ class Overlay(QObject):
         self.status_dialog.raise_()
 
     def poll(self):
+        now = time.perf_counter()
+        gap = now-self.last_ui_poll
+        self.last_ui_poll = now
+        if gap > .75:
+            log(f"界面响应延迟：{round(gap*1000)} ms，查询阶段：{getattr(self.worker,'query_phase','等待查询')}")
         self.hook.hwnd, self.hook.bbox, active = self.window_monitor.snapshot()
+        self.worker.set_capture_active(active and (self.mode == "click" or self.hook.enabled))
         if self.args.diagnose_input and self.hook.last_click != self.last_input_diagnostic:
             self.last_input_diagnostic = self.hook.last_click
             log(f"输入诊断：{self.last_input_diagnostic}")
@@ -1107,7 +1128,8 @@ class Overlay(QObject):
         elif self.waiting_for_cache and payload.get("index_revision", 0) < self.worker.index_revision:
             self.cache_checked({"card_data_refreshed": True})
         self.reposition()
-        self.status(f"本次查询已完成：{payload.get('elapsed', '—')} ms")
+        self.status(f"查询未完成：{payload['error']}" if "error" in payload else
+                    f"本次查询已完成：{payload.get('elapsed', '—')} ms")
         if "elapsed" in payload:
             log(f"浮卡已显示：查询 {payload['id']}，点击至界面更新 "
                 f"{round((time.perf_counter()-self.query_started)*1000)} ms")

@@ -24,11 +24,13 @@ class LargeCardFinder:
         self.matcher.add([descriptors])
         self.matcher.train()
         self.sift = cv2.SIFT_create(nfeatures=9000)
+        self.point_sift = cv2.SIFT_create(nfeatures=3000)
 
     def find(self, screenshot: np.ndarray, cards: dict,
              point: tuple[float, float] | None = None) -> dict | None:
         check_query()
-        points, descriptors = self.sift.detectAndCompute(cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY), None)
+        sift = self.point_sift if point is not None else self.sift
+        points, descriptors = sift.detectAndCompute(cv2.cvtColor(screenshot, cv2.COLOR_BGR2GRAY), None)
         check_query()
         if descriptors is None:
             return None
@@ -251,6 +253,31 @@ class LargeCardFinder:
             result["box"] = [value + (left if i % 2 == 0 else top)
                              for i, value in enumerate(result["box"])]
             result["polygon"] = [[round(px + left), round(py + top)] for px, py in result["polygon"]]
+        return result
+
+    def find_in_box(self, image, cards, point, box):
+        """轮廓只作局部搜索范围，结果仍须覆盖指针；不检索邻近大特写。"""
+        check_query()
+        x, y, right, bottom = box
+        width, height = right-x, bottom-y
+        margin_x, margin_y = max(6, round(width*.3)), max(6, round(height*.3))
+        left, top = max(0,x-margin_x), max(0,y-margin_y)
+        right, bottom = min(image.shape[1],right+margin_x), min(image.shape[0],bottom+margin_y)
+        if right <= left or bottom <= top:
+            return None
+        crop = image[top:bottom,left:right]
+        local = (float(point[0]-left),float(point[1]-top))
+        result = self.find_bounded(crop,cards,local)
+        scale = 1
+        if result is None or result["status"] == "tentative":
+            enlarged = cv2.resize(crop,None,fx=2,fy=2,interpolation=cv2.INTER_CUBIC)
+            refined = self.find_bounded(enlarged,cards,(local[0]*2,local[1]*2))
+            if refined and (refined["status"] == "matched" or result is None):
+                result, scale = refined, 2
+        if result:
+            result = {**result,
+                "box":[round(v/scale)+(left if i%2==0 else top) for i,v in enumerate(result["box"])],
+                "polygon":[[round(px/scale)+left,round(py/scale)+top] for px,py in result["polygon"]]}
         return result
 
     def find_bounded(self, image, cards, point):

@@ -20,13 +20,28 @@ from window_capture import WindowCaptureSession, crop_client_frame
 from atomic_json import read_json_retry
 
 
-def load_resources(index_dir: Path, visual_dir: Path, card_data_path: Path) -> tuple[list, dict, FeatureIndex, LargeCardFinder]:
+def load_resources(index_dir: Path, visual_dir: Path, card_data_path: Path, *, previous=None) -> tuple[list, dict, FeatureIndex, LargeCardFinder]:
     index = FeatureIndex(index_dir.resolve())
-    visuals = [(path.stem, read_image(path)) for path in sorted(visual_dir.glob("*.png")) if path.stem in index]
+    previous_visuals = dict(previous[0]) if previous else {}
+    previous_index = previous[2] if previous else None
+    old_stamps = getattr(previous_index,"visual_stamps",{})
+    visuals = []
+    for path in sorted(visual_dir.glob("*.png")):
+        card_id = path.stem
+        if card_id not in index:
+            continue
+        stat = path.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        index.visual_stamps[card_id] = stamp
+        unchanged = (card_id in previous_visuals and old_stamps.get(card_id) == stamp
+                     and previous_index.metadata.get(card_id) == index.metadata[card_id])
+        visuals.append((card_id,previous_visuals[card_id] if unchanged else read_image(path)))
     if not visuals:
         raise ValueError("视觉索引为空，请先运行 python cache_watch.py --once")
     cards = read_json_retry(card_data_path)["cards"]
-    return visuals, cards, index, LargeCardFinder(compact_records(visuals))
+    records = compact_records(visuals, previous[0] if previous else (),
+                              previous[3].records if previous else ())
+    return visuals, cards, index, LargeCardFinder(records)
 
 
 def signature(screenshot: np.ndarray, slot: dict, reference_size: list[int]) -> np.ndarray:

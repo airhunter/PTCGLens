@@ -7,9 +7,37 @@ import numpy as np
 from grid_cards import GridCardFinder, pointed_grid_box, partial_edge_boxes
 from battle_multi import visual_score
 from test_pointer_recognition import texture
+from global_cards import LargeCardFinder
+from recognition_index import compact_records
 
 
 class GridRecognitionTest(unittest.TestCase):
+    def test_outer_shadow_proposal_recovers_actual_card_before_broad_search(self):
+        canvas, refs = self.scene()
+        cards = {"first":{"name_en":"First"},"second":{"name_en":"Second"}}
+        visuals = list(zip(cards,refs))
+        finder = GridCardFinder(visuals,cards)
+        features = LargeCardFinder(compact_records(visuals))
+        # 外框含阴影和空白，直接按其尺寸复核会偏离实际卡面。
+        with patch("grid_cards.card_rectangles",return_value=[(210,80,110,154)]), \
+             patch.object(features,"find_at",side_effect=AssertionError("broad search")):
+            result = finder.find_at(canvas,(265,145),features)
+        self.assertEqual(result["status"],"matched")
+        self.assertEqual(result["card_id"],"second")
+        self.assertAlmostEqual(result["box"][0],220,delta=5)
+        self.assertAlmostEqual(result["box"][1],100,delta=5)
+
+    def test_visual_refresh_keeps_only_unchanged_reference_features(self):
+        refs = [texture(seed) for seed in (10,20,30)]
+        finder = GridCardFinder([("one",refs[0]),("two",refs[1])],{})
+        first, second = finder.reference("one",80,112), finder.reference("two",80,112)
+        finder.rank_candidates(cv2.resize(refs[0],(80,112)),80)
+        finder.update_visuals([("one",refs[0]),("two",refs[2])],{"one":{"name_en":"One"}})
+        self.assertIs(finder.reference("one",80,112),first)
+        self.assertNotIn(("two",80,112),finder.features)
+        self.assertEqual(len(finder.ranking_templates),0)
+        self.assertIsNot(finder.reference("two",80,112),second)
+
     def scene(self):
         canvas=np.full((650,1100,3),205,dtype=np.uint8)
         refs=[cv2.resize(texture(seed),(160,224)) for seed in (10,20)]

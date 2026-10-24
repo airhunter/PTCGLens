@@ -12,10 +12,14 @@ import numpy as np
 from atomic_json import read_json_retry
 
 
-def compact_records(visuals):
+def compact_records(visuals, previous_visuals=(), previous_records=()):
     sift = cv2.SIFT_create(nfeatures=600)
+    old_images, old_records = dict(previous_visuals), {r["card_id"]:r for r in previous_records}
     records = []
     for card_id, reference in visuals:
+        if old_images.get(card_id) is reference and card_id in old_records:
+            records.append(old_records[card_id])
+            continue
         image = cv2.resize(reference,(220,308),interpolation=cv2.INTER_CUBIC)
         points, descriptors = sift.detectAndCompute(cv2.cvtColor(image,cv2.COLOR_BGR2GRAY),None)
         if descriptors is not None:
@@ -33,6 +37,7 @@ class FeatureIndex(Mapping):
         self.root, self.limit = root, limit
         self.metadata = {r["card_id"]:r for r in read_json_retry(root / "manifest.json")["cards"]}
         self.cached = OrderedDict()
+        self.visual_stamps = {}
 
     def __len__(self):
         return len(self.metadata)

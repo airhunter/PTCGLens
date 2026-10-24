@@ -294,6 +294,9 @@ class WindowCaptureSession:
             raise RuntimeError("；".join(missing))
         self.hwnd, self.error = hwnd, None
         self._closed, self._lock = threading.Event(), threading.Lock()
+        self._active, self._wake = threading.Event(), threading.Event()
+        self._active.set()
+        self._generation = 0
         self._sequence, self._frame = 0, None
         self._thread = threading.Thread(target=self._run, args=(max(.1, interval),), daemon=True,
                                         name="PTCGLens ScreenCaptureKit")
@@ -305,7 +308,13 @@ class WindowCaptureSession:
                 content_filter = _filter(self.hwnd)
                 filter_bounds = _rect(_info(self.hwnd))
             while not self.closed:
+                if not self._active.is_set():
+                    self._wake.wait(.5)
+                    self._wake.clear()
+                    continue
                 started = time.monotonic()
+                with self._lock:
+                    generation = self._generation
                 with objc.autorelease_pool():
                     before = client_bbox(self.hwnd)
                     full = _rect(_info(self.hwnd))
@@ -316,10 +325,13 @@ class WindowCaptureSession:
                     after = client_bbox(self.hwnd)
                 if before == after:
                     with self._lock:
-                        self._frame = FrameImage(frame, full, before, time.monotonic())
-                        self._sequence += 1
+                        if self._active.is_set() and generation == self._generation:
+                            self._frame = FrameImage(frame, full, before, time.monotonic())
+                            self._sequence += 1
                 # 更新过滤器，以免窗口缩放后沿用旧内容区域。
-                if self._closed.wait(max(0, interval-(time.monotonic()-started))):
+                self._wake.wait(max(0, interval-(time.monotonic()-started)))
+                self._wake.clear()
+                if self.closed:
                     break
                 if before != after:
                     with objc.autorelease_pool():
@@ -334,12 +346,25 @@ class WindowCaptureSession:
 
     def newest(self, after_sequence):
         with self._lock:
-            if self.closed or self._sequence <= after_sequence or self._frame is None:
+            if self.closed or not self._active.is_set() or self._sequence <= after_sequence or self._frame is None:
                 return None
             return self._sequence, self._frame
 
+    def set_active(self, active):
+        if bool(active) == self._active.is_set():
+            return
+        with self._lock:
+            self._generation += 1
+            self._frame = None  # 暂停或恢复时不把旧牌桌当成新画面。
+            if active:
+                self._active.set()
+            else:
+                self._active.clear()
+        self._wake.set()
+
     def stop(self):
         self._closed.set()
+        self._wake.set()
         self._thread.join(timeout=1)
 
 

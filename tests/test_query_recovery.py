@@ -53,6 +53,7 @@ class QueryRecoveryTest(unittest.TestCase):
             Overlay.answer(overlay, {"id": 3, "error": "暂未收到游戏画面", "retry_capture": True})
             self.assertEqual(overlay.capture_retries, min(attempt+1, 2))
             self.assertEqual(overlay.capture_retry_at is not None, attempt < 2)
+            self.assertIn("暂未收到游戏画面",overlay.status.call_args.args[0])
 
     def test_first_start_builds_index_automatically(self):
         with TemporaryDirectory() as folder:
