@@ -4,7 +4,7 @@ import unittest
 import io
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -114,6 +114,48 @@ class QueryQueueTest(unittest.TestCase):
                 worker.stop_event.set()
                 worker.join(2)
         self.assertIn("用时过长", worker.events.answer.values[0][0]["error"])
+        details = worker.diagnostics.save.call_args.args[1]
+        self.assertEqual(details["result"]["status"], "timeout")
+        self.assertIn("phase", details)
+
+    def test_ui_cancelled_timeout_saves_original_frame_without_emitting_late_answer(self):
+        worker = self.worker()
+        worker.connect_game = lambda: None
+        worker.background_jobs = lambda *args: None
+        worker.refresh_cache = lambda: None
+        entered, release = threading.Event(), threading.Event()
+        def recognize(image, point):
+            worker.query_phase = "test feature matching"
+            entered.set()
+            release.wait(2)
+            check_query()
+        worker.recognize = recognize
+        image = np.zeros((20,20,3),np.uint8)
+        with patch("overlay_app.set_dpi_awareness"), \
+             patch("overlay_app.load_resources", return_value=([],{},None,None)), \
+             patch("overlay_app.QUERY_TIMEOUT", .02):
+            worker.start()
+            try:
+                self.assertTrue(worker.events.ready.emitted.wait(2))
+                worker.query(1, {"screenshot":image,"point":(105,205),"bbox":(100,200,110,210),
+                                 "started":time.perf_counter()})
+                self.assertTrue(entered.wait(2))
+                time.sleep(.03)
+                worker.cancel(2)  # 与界面超时推进查询编号的行为相同。
+                release.set()
+            finally:
+                release.set()
+                worker.stop_event.set()
+                worker.join(2)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(worker.events.answer.values, [])
+        worker.diagnostics.save.assert_called_once()
+        saved, details = worker.diagnostics.save.call_args.args
+        self.assertIs(saved, image)
+        self.assertEqual(details["request_id"], 1)
+        self.assertEqual(details["point"], (10,10))
+        self.assertEqual(details["phase"], "test feature matching")
+        self.assertGreaterEqual(details["elapsed_ms"], 20)
 
     def worker(self):
         events = SimpleNamespace(**{name: SignalRecorder() for name in
@@ -121,6 +163,7 @@ class QueryQueueTest(unittest.TestCase):
         args = SimpleNamespace(cache_root=Path("output/unused-test-cache"), diagnose_input=False)
         worker = Recognizer(events, args)
         worker.prepare_metadata = lambda: None
+        worker.diagnostics.save = Mock()
         return worker
 
     def test_quick_queries_skip_queued_card_and_discard_running_old_result_or_error(self):

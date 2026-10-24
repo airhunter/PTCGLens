@@ -37,7 +37,7 @@ from latest_jobs import LatestJobQueue
 from query_diagnostics import QueryFailureRecorder
 from atomic_json import read_json_retry, write_json_atomic
 from window_capture import WindowCaptureSession, crop_client_frame
-from query_control import QUERY_TIMEOUT, TIMEOUT_MESSAGE, QueryCancelled, check_query, query_scope
+from query_control import QUERY_TIMEOUT, TIMEOUT_MESSAGE, QueryCancelled, QueryTimedOut, check_query, query_scope
 from window_monitor import GameWindowMonitor
 from console_log import log
 
@@ -249,6 +249,8 @@ class Recognizer(threading.Thread):
                 request_id, request = job
                 if request_id != self.latest_request:
                     continue
+                dequeued = time.perf_counter()
+                self.query_phase = "读取查询画面"
                 try:
                     screenshot = request["screenshot"]
                     point, bbox, started = request["point"], request["bbox"], request["started"]
@@ -287,8 +289,14 @@ class Recognizer(threading.Thread):
                     if card and request_id == self.latest_request:
                         self.art_jobs.put((request_id, card["card_id"]))
                 except QueryCancelled:
+                    # 界面可能先触发超时并推进编号；仍保存这次慢查询，避免
+                    # 只留下“已取消”提示而没有可复现画面及耗时阶段。
+                    if time.perf_counter()-request["started"] >= QUERY_TIMEOUT:
+                        self.record_timeout(request_id, request, dequeued)
                     continue
                 except Exception as exc:
+                    if isinstance(exc, QueryTimedOut):
+                        self.record_timeout(request_id, request, dequeued)
                     if request_id == self.latest_request and not self.stop_event.is_set():
                         self.events.answer.emit({"id": request_id, "error": str(exc),
                                                  "retry_capture": request.get("screenshot") is None
@@ -302,6 +310,21 @@ class Recognizer(threading.Thread):
             self.stop_event.set()
             if self.session:
                 self.session.stop()
+
+    def record_timeout(self, request_id, request, dequeued):
+        elapsed = round((time.perf_counter()-request["started"])*1000)
+        queued = round((dequeued-request["started"])*1000)
+        log(f"查询 {request_id} 超时：{elapsed} ms，排队 {queued} ms，阶段：{self.query_phase}")
+        try:
+            image = request.get("screenshot")
+            shape = image.shape[:2] if image is not None else None
+            point = frame_point(request["point"], request["bbox"], shape) if shape else None
+            self.diagnostics.save(image, {
+                "request_id": request_id, "point": point, "bbox": request["bbox"], "shape": shape,
+                "elapsed_ms": elapsed, "queued_ms": queued,
+                "phase": self.query_phase, "result": {"status": "timeout"}})
+        except Exception as exc:
+            log(f"查询诊断保存失败：{exc}")
 
     def connect_game(self):
         try:
@@ -332,11 +355,13 @@ class Recognizer(threading.Thread):
             self.grid_visuals=visuals
         else:
             self.grid_finder.cards=cards
+        self.query_phase = "卡框检测与图像复核"
         grid=self.grid_finder.find_at(screenshot,point)
         check_query()
         if grid:
             return grid
         # SIFT 优先确认鼠标下的具体卡图，适用于出战、备战、手牌、牌库及特写。
+        self.query_phase = "局部特征检索"
         result = finder.find_at(screenshot, cards, point)
         check_query()
         result = self.grid_finder.check_energy_result(screenshot, result)
@@ -350,6 +375,7 @@ class Recognizer(threading.Thread):
             return result
         # 动画横幅可能遮住牌桌边框和卡牌上沿。布局只提议卡框，
         # 必须由鼠标所在卡面的严格图像复核确认，不能直接沿用卡位答案。
+        self.query_phase = "牌桌卡位复核"
         layout = adaptive_layout(screenshot, self.layout)
         check_query()
         x, y = point
@@ -389,6 +415,7 @@ class Recognizer(threading.Thread):
                         if partial:
                             return partial
                     return fallback
+        self.query_phase = "截断卡面复核"
         partial = self.grid_finder.find_partial(screenshot, point)
         if partial:
             return partial

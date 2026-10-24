@@ -1,0 +1,15 @@
+{
+  "scenes": [
+    {
+      "id": "mac-reported-dipplin-timeout",
+      "image": "timeout-investigation/reported.png",
+      "scales": [1, 1.5, 2],
+      "points": [
+        {"id": "preview", "point": [300, 300], "name_en": "Dipplin", "rules_card_id": "sv6_en_018"},
+        {"id": "opponent-active", "point": [1150, 230], "name_en": "Dipplin", "rules_card_id": "sv6_en_018"},
+        {"id": "own-active", "point": [1140, 650], "name_en": "Mega Lucario ex", "rules_card_id": "me1_en_077"},
+        {"id": "background", "point": [950, 420]}
+      ]
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -56,6 +57,31 @@ class PointerRecognitionTest(unittest.TestCase):
         result = self.finder.find_at(canvas, {}, (240, 590))
         self.assertEqual(result["card_id"], "0")
         self.assertGreater(result["box"][1], 540)
+
+    def test_retina_query_bounds_feature_images_and_restores_pointed_instance(self):
+        image = self.scene()
+        for scale in (1.5, 2.5):
+            with self.subTest(scale=scale):
+                enlarged = cv2.resize(image, None, fx=scale, fy=scale)
+                with patch.object(self.finder, "find", wraps=self.finder.find) as find:
+                    result = self.finder.find_at(enlarged, {}, (round(160*scale), round(180*scale)))
+                self.assertEqual(result["status"], "matched")
+                self.assertEqual(result["card_id"], "0")
+                self.assertAlmostEqual(result["box"][0], 80*scale, delta=5)
+                self.assertAlmostEqual(result["box"][2], 260*scale, delta=5)
+                for call in find.call_args_list:
+                    self.assertLessEqual(max(call.args[0].shape[:2]), self.finder.MAX_QUERY_EDGE)
+
+    def test_retina_partial_hand_stays_on_hand_instead_of_shared_preview(self):
+        canvas = np.full((650,1100,3),70,dtype=np.uint8)
+        canvas[30:534,80:440] = cv2.resize(self.images[0],(360,504))
+        canvas[550:650,150:330] = self.images[0][:100]
+        enlarged = cv2.resize(canvas,None,fx=2.5,fy=2.5)
+        result = self.finder.find_at(enlarged,{},(600,1475))
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["card_id"], "0")
+        self.assertGreater(result["box"][1], 1350)
+        self.assertGreater(result["box"][3], enlarged.shape[0])
 
     def refine_shared_printings(self,cards):
         # 全库阶段只有弱候选；逐卡复核能找回被相似印次分走的匹配点。

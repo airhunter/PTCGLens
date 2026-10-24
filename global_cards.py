@@ -10,6 +10,10 @@ from query_control import check_query
 
 
 class LargeCardFinder:
+    # Retina/全屏截图的局部裁剪仍可能有数百万像素。特征检索采用有界
+    # 工作图，避免同一卡面仅因窗口放大就成倍增加 SIFT 和候选复核开销。
+    MAX_QUERY_EDGE = 1000
+
     def __init__(self, records: list[dict]):
         self.records = records
         lengths = [len(record["descriptors"]) for record in records]
@@ -230,14 +234,14 @@ class LargeCardFinder:
         right, bottom = min(width, x + round(width * .23)), min(height, y + round(height * .5))
         if right <= left or bottom <= top:
             return None
-        result = self.find(screenshot[top:bottom, left:right], cards, (float(x-left), float(y-top)))
+        result = self.find_bounded(screenshot[top:bottom, left:right], cards, (float(x-left), float(y-top)))
         if result is None or result["status"]=="tentative":
             # 小图上的原始特征不足时，局部重采样；仍沿用内点数和规则确认门槛。
             near_left,near_top=max(0,x-round(width*.085)),max(0,y-round(height*.18))
             near_right,near_bottom=min(width,x+round(width*.085)),min(height,y+round(height*.18))
             enlarged=cv2.resize(screenshot[near_top:near_bottom,near_left:near_right],None,
                                 fx=2,fy=2,interpolation=cv2.INTER_CUBIC)
-            refined=self.find(enlarged,cards,(float((x-near_left)*2),float((y-near_top)*2)))
+            refined=self.find_bounded(enlarged,cards,(float((x-near_left)*2),float((y-near_top)*2)))
             if refined and (refined["status"]=="matched" or result is None):
                 refined["box"]=[round(value/2)+(near_left if i%2==0 else near_top)
                                 for i,value in enumerate(refined["box"])]
@@ -246,5 +250,22 @@ class LargeCardFinder:
         if result:
             result["box"] = [value + (left if i % 2 == 0 else top)
                              for i, value in enumerate(result["box"])]
-            result["polygon"] = [[px + left, py + top] for px, py in result["polygon"]]
+            result["polygon"] = [[round(px + left), round(py + top)] for px, py in result["polygon"]]
+        return result
+
+    def find_bounded(self, image, cards, point):
+        """按实际缩放后的宽高映射坐标，保持既有内点及规则确认门槛。"""
+        height, width = image.shape[:2]
+        scale = min(1., self.MAX_QUERY_EDGE / max(width, height))
+        if scale == 1.:
+            return self.find(image, cards, point)
+        sampled = cv2.resize(image, (max(1, round(width*scale)), max(1, round(height*scale))),
+                             interpolation=cv2.INTER_AREA)
+        # OpenCV 的整数取整会令两个方向的实际倍率略有不同。
+        factors = np.array([sampled.shape[1]/width, sampled.shape[0]/height])
+        result = self.find(sampled, cards, tuple(map(float, np.asarray(point)*factors)))
+        if result:
+            result = {**result,
+                "box": [round(value/factors[i%2]) for i,value in enumerate(result["box"])],
+                "polygon": (np.asarray(result["polygon"])/factors).tolist()}
         return result
