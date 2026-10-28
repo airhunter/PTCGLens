@@ -40,7 +40,8 @@ def load_resources(index_dir: Path, visual_dir: Path, card_data_path: Path, *, p
         raise ValueError("视觉索引为空，请先运行 python cache_watch.py --once")
     cards = read_json_retry(card_data_path)["cards"]
     records = compact_records(visuals, previous[0] if previous else (),
-                              previous[3].records if previous else ())
+                              previous[3].records if previous else (),
+                              cache_dir=index.root/'compact', source_metadata=index.metadata)
     return visuals, cards, index, LargeCardFinder(records)
 
 

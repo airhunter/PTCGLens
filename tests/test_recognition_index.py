@@ -2,7 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 import cv2
@@ -14,6 +14,41 @@ from test_pointer_recognition import texture
 
 
 class RecognitionIndexTest(unittest.TestCase):
+    def test_persistent_compact_cache_reuses_features_and_invalidates_changed_pixels_or_source(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            visuals=[('one',texture(71))]
+            metadata={'one':{'bundle_mtime_ns':1}}
+            first=compact_records(visuals,cache_dir=root,source_metadata=metadata)
+            with np.load(root/'one.npz') as data:
+                original_signature=data['signature'].item()
+            with patch('recognition_index.cv2.SIFT_create') as sift:
+                sift.return_value.detectAndCompute.side_effect=AssertionError('unnecessary SIFT')
+                second=compact_records(visuals,cache_dir=root,source_metadata=metadata)
+            np.testing.assert_array_equal(first[0]['descriptors'],second[0]['descriptors'])
+            detector=Mock(wraps=cv2.SIFT_create(nfeatures=600))
+            with patch('recognition_index.cv2.SIFT_create',return_value=detector):
+                compact_records(visuals,cache_dir=root,source_metadata={'one':{'bundle_mtime_ns':2}})
+                detector.detectAndCompute.assert_called_once()
+            # 来源更新以及像素更新都必须写入新的签名，而不是复用旧文件。
+            with np.load(root/'one.npz') as data:
+                changed_source=data['signature'].item()
+                self.assertNotEqual(original_signature,changed_source)
+            compact_records([('one',texture(72))],cache_dir=root,source_metadata={'one':{'bundle_mtime_ns':2}})
+            with np.load(root/'one.npz') as data:
+                self.assertNotEqual(changed_source,data['signature'].item())
+
+    def test_broken_or_unwritable_compact_cache_falls_back_to_actual_features(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            (root/'one.npz').write_bytes(b'partial write')
+            images=[('one',texture(73))]
+            records=compact_records(images,cache_dir=root)
+            self.assertGreater(len(records[0]['points']),25)
+            (root/'blocked').write_bytes(b'not a directory')
+            fallback=compact_records(images,cache_dir=root/'blocked')
+            np.testing.assert_array_equal(records[0]['descriptors'],fallback[0]['descriptors'])
+
     def test_reload_reuses_unchanged_images_and_compact_features(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory)
