@@ -278,6 +278,30 @@ class MacCaptureTest(unittest.TestCase):
                 session.stop()
         self.assertFalse(session._thread.is_alive())
 
+    def test_mac_paused_start_does_not_initialize_capture_until_resumed(self):
+        import threading
+        import time
+        b=self.backend
+        captured=threading.Event()
+        def capture(*unused):
+            captured.set()
+            return np.zeros((20,20,3),np.uint8)
+        with patch.object(b,'check_permissions',return_value=[]), \
+             patch.object(b,'_filter',return_value=object()) as source, \
+             patch.object(b,'_info',return_value={}), patch.object(b,'_rect',return_value=(0,0,20,20)), \
+             patch.object(b,'client_bbox',return_value=(0,0,20,20)),patch.object(b,'_capture',side_effect=capture):
+            session=b.WindowCaptureSession(1,.1,active=False)
+            try:
+                time.sleep(.15)
+                source.assert_not_called()
+                self.assertIsNone(session.newest(0))
+                session.set_active(True)
+                self.assertTrue(captured.wait(2))
+                source.assert_called_once_with(1)
+            finally:
+                session.stop()
+        self.assertFalse(session._thread.is_alive())
+
     def test_mac_shortcuts_reject_unavailable_function_keys(self):
         self.backend.validate_shortcut("Ctrl+Option+L")
         with self.assertRaises(ValueError):

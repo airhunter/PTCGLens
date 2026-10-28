@@ -11,6 +11,25 @@ from overlay_input import HoverTrigger
 
 
 class QueryRecoveryTest(unittest.TestCase):
+    def test_delayed_first_frame_rearms_current_query_once_after_capture_retry_exhaustion(self):
+        hook = SimpleNamespace(valid=Mock(return_value=True),retry=Mock(return_value=True))
+        overlay = SimpleNamespace(waiting_for_capture=True,wanted=True,mode='toggle',hold_epoch=7,
+            hook=hook,current_status='查询未完成：暂未收到游戏画面',status_dialog=None,
+            capture_retries=2,capture_retry_at=None,status=Mock())
+        Overlay.capture_state(overlay,'正在接收游戏画面')
+        Overlay.capture_state(overlay,'正在接收游戏画面')
+        hook.retry.assert_called_once_with(7)
+        self.assertFalse(overlay.waiting_for_capture)
+        self.assertEqual(overlay.capture_retries,0)
+
+    def test_delayed_first_frame_cannot_reopen_closed_or_invalid_hover(self):
+        for wanted,valid in [(False,True),(True,False)]:
+            overlay = SimpleNamespace(waiting_for_capture=True,wanted=wanted,mode='toggle',hold_epoch=7,
+                hook=SimpleNamespace(valid=Mock(return_value=valid),retry=Mock()),
+                current_status='waiting',status_dialog=None,status=Mock())
+            Overlay.capture_state(overlay,'正在接收游戏画面')
+            overlay.hook.retry.assert_not_called()
+
     def test_cache_retry_rearms_same_point_but_cannot_rearm_released_hold(self):
         hook = HoverTrigger(Mock(), Mock())
         hook.state.step(0, True, True, (100, 100))

@@ -250,7 +250,8 @@ def _image_array_png(image):
 
 
 def _filter(hwnd):
-    content = _await_call(SC.SCShareableContent.getShareableContentWithCompletionHandler_)
+    # 全屏/桌面切换后系统枚举可能接近五秒；初始化不占用界面线程。
+    content = _await_call(SC.SCShareableContent.getShareableContentWithCompletionHandler_, timeout=15)
     window = next((w for w in content.windows() if w.windowID() == hwnd), None)
     if window is None:
         raise RuntimeError("游戏窗口已关闭或最小化")
@@ -288,14 +289,15 @@ def crop_client_frame(frame, hwnd, *, bbox=None, strict=False):
 
 class WindowCaptureSession:
     """限制帧率并只保留最新窗口帧；被其他窗口遮挡时仍采集目标窗口。"""
-    def __init__(self, hwnd, interval):
+    def __init__(self, hwnd, interval, *, active=True):
         missing = check_permissions()
         if missing:
             raise RuntimeError("；".join(missing))
         self.hwnd, self.error = hwnd, None
         self._closed, self._lock = threading.Event(), threading.Lock()
         self._active, self._wake = threading.Event(), threading.Event()
-        self._active.set()
+        if active:
+            self._active.set()
         self._generation = 0
         self._sequence, self._frame = 0, None
         self._thread = threading.Thread(target=self._run, args=(max(.1, interval),), daemon=True,
@@ -304,9 +306,7 @@ class WindowCaptureSession:
 
     def _run(self, interval):
         try:
-            with objc.autorelease_pool():
-                content_filter = _filter(self.hwnd)
-                filter_bounds = _rect(_info(self.hwnd))
+            content_filter, filter_bounds = None, None
             while not self.closed:
                 if not self._active.is_set():
                     self._wake.wait(.5)
@@ -318,7 +318,7 @@ class WindowCaptureSession:
                 with objc.autorelease_pool():
                     before = client_bbox(self.hwnd)
                     full = _rect(_info(self.hwnd))
-                    if full != filter_bounds:
+                    if content_filter is None or full != filter_bounds:
                         content_filter = _filter(self.hwnd)
                         filter_bounds = full
                     frame = _capture(content_filter, before)

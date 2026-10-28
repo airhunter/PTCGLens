@@ -343,7 +343,8 @@ class Recognizer(threading.Thread):
         if failure:
             raise RuntimeError(failure)
         if hwnd and not self.session:
-            self.session = WindowCaptureSession(hwnd, .25 if sys.platform == "darwin" else .1)
+            options = {"active": self.capture_active} if sys.platform == "darwin" else {}
+            self.session = WindowCaptureSession(hwnd, .25 if sys.platform == "darwin" else .1, **options)
         if self.session is not None and sys.platform == "darwin":
             self.session.set_active(self.capture_active)
         state = ("查询关闭，已暂停采集" if self.session and sys.platform == "darwin" and not self.capture_active else
@@ -847,6 +848,7 @@ class Overlay(QObject):
         self.wanted = False
         self.recognition_pending = False
         self.waiting_for_cache = False
+        self.waiting_for_capture = False
         self.capture_retry_at = None
         self.capture_retries = 0
         self.popup_box = None
@@ -937,6 +939,12 @@ class Overlay(QObject):
         self.current_capture_state = text
         if text == "正在接收游戏画面" and self.current_status.startswith("窗口采集连接失败"):
             self.status("游戏画面已恢复，可以继续悬停查询")
+        if (text == "正在接收游戏画面" and getattr(self, "waiting_for_capture", False)
+                and self.wanted and self.mode in ("hover", "toggle")
+                and self.hook.valid(self.hold_epoch) and self.hook.retry(self.hold_epoch)):
+            self.waiting_for_capture = False
+            self.capture_retries = 0
+            self.capture_retry_at = None
         if self.status_dialog is not None:
             self.capture_label.setText(text)
 
@@ -1061,6 +1069,7 @@ class Overlay(QObject):
         self.popup_box = None
         self.wanted = False
         self.waiting_for_cache = False
+        self.waiting_for_capture = False
         self.capture_retry_at = None
         self.capture_retries = 0
         self.hook.dismiss_enabled = False
@@ -1098,6 +1107,7 @@ class Overlay(QObject):
             return
         self.hold_epoch = request.get("hold_epoch")
         self.waiting_for_cache = False
+        self.waiting_for_capture = False
         self.capture_retry_at = None
         x, y = request["point"]
         self.query_started = request["started"]
@@ -1128,6 +1138,7 @@ class Overlay(QObject):
                 self.hook.set_target(restore_rect(self.target_relative, self.hook.bbox))
         self.popup.show_result(payload)
         self.waiting_for_cache = not payload.get("card") and "error" not in payload
+        self.waiting_for_capture = bool(payload.get("retry_capture"))
         if payload.get("card"):
             self.capture_retries = 0
         elif payload.get("retry_capture") and self.capture_retries < 2:
