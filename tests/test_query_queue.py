@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import numpy as np
+import cv2
 
 from overlay_app import Recognizer
 from query_control import check_query
@@ -223,7 +224,9 @@ class QueryQueueTest(unittest.TestCase):
                         entered.set()
                         if not release.wait(3):
                             raise RuntimeError("test timed out")
-                    return ("translation", False) if kind == "translate" else {"language":"英文","provider":"test"}
+                    return ("translation", False) if kind == "translate" else {
+                        "language":"英文","provider":"test",
+                        "bytes":cv2.imencode('.png', np.zeros((8,8,3),np.uint8))[1].tobytes()}
                 if kind == "translate":
                     worker.translator.translate = slow
                     jobs = worker.translation_jobs
@@ -263,6 +266,37 @@ class QueryQueueTest(unittest.TestCase):
         worker.art_jobs.put((1, "same"))
         worker.background_jobs(worker.art_jobs, "art")
         self.assertEqual(received, [old_card])
+
+    def test_closing_during_image_decode_discards_the_prepared_old_card(self):
+        from art_image import prepare_art
+        worker = self.worker()
+        worker.latest_request = 1
+        worker.resources = ([], {key:{'card_id':key} for key in ('old','new')}, None, None)
+        body = cv2.imencode('.png',np.zeros((8,8,3),np.uint8))[1].tobytes()
+        worker.image_sources.resolve = lambda card,*unused: {
+            'bytes':body,'language':'英文','provider':card['card_id']}
+        entered,release = threading.Event(),threading.Event()
+        def decode(art):
+            if art['provider']=='old':
+                entered.set()
+                if not release.wait(2):
+                    raise RuntimeError('decode test timed out')
+            return prepare_art(art)
+        worker.art_jobs.put((1,'old'))
+        with patch('overlay_app.prepare_art',side_effect=decode):
+            thread = threading.Thread(target=worker.background_jobs,args=(worker.art_jobs,'art'))
+            thread.start()
+            try:
+                self.assertTrue(entered.wait(1))
+                worker.cancel(2)
+                worker.art_jobs.put((2,'new'))
+                release.set()
+                self.assertTrue(worker.events.art.emitted.wait(2))
+            finally:
+                release.set();worker.stop_event.set();thread.join(2)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual([item[0] for item in worker.events.art.values],[2])
+        self.assertEqual(worker.events.art.values[0][1]['provider'],'new')
 
     def test_metadata_only_refresh_reuses_visuals_and_sift_index(self):
         worker = self.worker()

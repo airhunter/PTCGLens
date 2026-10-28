@@ -13,7 +13,7 @@ from pathlib import Path
 import cv2
 
 from PySide6.QtCore import QLockFile, QObject, QTimer, Qt, Signal, Slot
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                               QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
                               QSystemTrayIcon, QVBoxLayout, QWidget, QScrollArea, QFrame, QDoubleSpinBox, QStyle,
@@ -40,6 +40,7 @@ from window_capture import WindowCaptureSession, crop_client_frame
 from query_control import QUERY_TIMEOUT, TIMEOUT_MESSAGE, QueryCancelled, QueryTimedOut, check_query, query_scope
 from window_monitor import GameWindowMonitor
 from console_log import log
+from art_image import prepare_art
 
 
 ROOT = Path(__file__).resolve().parent
@@ -134,9 +135,11 @@ class Recognizer(threading.Thread):
                     art = self.image_sources.resolve(card,lambda:self.latest_request != request_id or self.stop_event.is_set())
                     if (request_id == self.latest_request and not self.stop_event.is_set()
                             and self.last_art != (request_id,art)):
-                        self.last_art = (request_id,art)
-                        self.events.art.emit(request_id, art)
-                        log(f"卡图已更新：{card_id}，{art['language']}，{art['provider']}")
+                        prepared = prepare_art(art)
+                        if request_id == self.latest_request and not self.stop_event.is_set():
+                            self.last_art = (request_id,art)
+                            self.events.art.emit(request_id, prepared)
+                            log(f"卡图已更新：{card_id}，{art['language']}，{art['provider']}")
                 except Exception as exc:
                     log(f"卡图加载暂不可用：{card_id}，{exc}")
 
@@ -304,6 +307,7 @@ class Recognizer(threading.Thread):
                                                      or bool(request.get("capture_error"))})
                 finally:
                     self.query_resources = None
+                    self.query_phase = "等待查询"
         except Exception as exc:
             self.events.status.emit(f"识别启动失败：{exc}")
         finally:
@@ -781,9 +785,10 @@ class ReadingCard(QWidget):
 
     def set_art(self, request_id, data):
         if request_id == self.request_id and self.image is not None:
-            payload = data if isinstance(data,dict) else {"bytes":data}
-            pixmap = QPixmap()
-            if pixmap.loadFromData(payload["bytes"]):
+            payload = data if isinstance(data,dict) else {}
+            image = payload.get("image")
+            if isinstance(image, QImage) and not image.isNull():
+                pixmap = QPixmap.fromImage(image)
                 self.image_language = payload.get("language")
                 if payload.get("chinese_effect") and 0 in self.text_labels:
                     self.text_labels[0].setText(readable_text(payload["chinese_effect"]))

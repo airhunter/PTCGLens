@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QScrollArea
 
 from overlay_app import ReadingCard, configure_font
 from qt_runtime import prepare_qt_plugins
+from art_image import prepare_art
 
 
 class ReadingCardTest(unittest.TestCase):
@@ -228,8 +229,15 @@ class ReadingCardTest(unittest.TestCase):
         buffer = QBuffer()
         buffer.open(QIODevice.OpenModeFlag.WriteOnly)
         image.save(buffer,"PNG")
-        return {"bytes":bytes(buffer.data()),"language":"简中","set":"CSV","printing":"001/100",
-                "chinese_effect":"选择自己牌库中的一张宝可梦，加入手牌。"}
+        return prepare_art({"bytes":bytes(buffer.data()),"language":"简中","set":"CSV","printing":"001/100",
+                "chinese_effect":"选择自己牌库中的一张宝可梦，加入手牌。"})
+
+    def test_encoded_art_is_not_decoded_by_the_ui(self):
+        self.popup.show_result({"id":2,"card":self.card})
+        initial = self.popup.art_pixmap
+        with patch('art_image.cv2.imdecode', side_effect=AssertionError('UI image decode')):
+            self.popup.set_art(2, {'bytes':b'encoded image'})
+        self.assertIs(self.popup.art_pixmap, initial)
 
     def test_chinese_card_effect_replaces_english_and_ignores_late_machine_translation(self):
         self.card.update(hp=0,attacks=[],card_text_en="English rule")
