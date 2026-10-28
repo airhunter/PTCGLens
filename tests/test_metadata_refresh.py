@@ -24,7 +24,7 @@ class MetadataRefreshTest(unittest.TestCase):
                     chinese.mkdir()
                 with patch("card_data.read_game_database", return_value=[
                         {"cardID": "test_1", "EN Card Name": "Fuecoco ex", "EN Attack Text": "English rule."}]), \
-                     patch("card_data.subprocess.run", side_effect=FileNotFoundError("git unavailable")):
+                     patch("card_data.repository_revision", return_value=None):
                     document = build_card_data(index, cache, chinese, root/"cards.json")
                 card = document["cards"]["test_en_001"]
                 self.assertEqual(card["name_en"], "Fuecoco ex")

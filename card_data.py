@@ -8,12 +8,12 @@ import hashlib
 import json
 import re
 import struct
-import subprocess
 from pathlib import Path
 from platform_backend.paths import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE
 
 from atomic_json import read_json_retry, write_json_atomic
 from local_chinese import LOCAL_CHINESE_PATH, coverage_report, load_local_chinese, resolve_chinese
+from repository_revision import repository_revision
 
 
 RESOURCE_ID = re.compile(r"^(.+)_en_(\d{3})$")
@@ -217,14 +217,7 @@ def build_card_data(index_dir: Path, game_cache: Path, translation_root: Path, o
         "game_database_files": len(database_files),
     }
     source_repo = translation_root.parent
-    revision = None
-    if translation_root.is_dir():
-        try:
-            result = subprocess.run(["git", "-C", str(source_repo), "rev-parse", "HEAD"],
-                                    capture_output=True, text=True, check=False)
-            revision = result.stdout.strip() if result.returncode == 0 else None
-        except OSError:
-            pass  # Git 仅用于记录可选上游资料的版本。
+    revision = repository_revision(source_repo) if translation_root.is_dir() else None
     document = {
         "source": {
             "translation_repository": "https://github.com/Hill-98/ptcg-live-zh-mod",
