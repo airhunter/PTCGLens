@@ -87,6 +87,7 @@ class HoverTrigger(threading.Thread):
         self.toggle = toggle
         self.state = ToggleHoverState(delay) if toggle else HoverState(delay)
         self.hwnd = self.bbox = self.popup_hwnd = None
+        self.foreground = lambda: get_backend().is_foreground(self.hwnd)
         self.popup_contains = lambda p: False
         self.dismiss_enabled = self.outside_dismiss_enabled = False
         self.last_click = None
@@ -111,7 +112,7 @@ class HoverTrigger(threading.Thread):
             backend = get_backend()
             return (self.state.held and epoch == self.state.epoch and
                     (self.state.enabled if self.toggle else backend.shortcut_pressed(self.shortcut))
-                    and backend.is_foreground(self.hwnd))
+                    and self.foreground())
 
     @property
     def enabled(self):
@@ -148,7 +149,7 @@ class HoverTrigger(threading.Thread):
         while not self.stop_event.is_set():
             try:
                 pressed = backend.shortcut_pressed(self.shortcut)
-                active = backend.is_foreground(self.hwnd)
+                active = self.foreground()
                 self.escape_hook.hwnd = self.hwnd
                 self.escape_hook.dismiss_enabled = self.dismiss_enabled
                 point = backend.pointer_position()

@@ -898,6 +898,9 @@ class Overlay(QObject):
             hook = HoverTrigger(self.freeze_hover, self.events.status.emit,
                 shortcut=self.settings["shortcut"], delay=self.hover_delay,
                 dismiss_callback=self.events.dismissed.emit, toggle=self.mode == "toggle")
+            # valid() 也在界面线程调用；这里复用有时效限制的后台快照，
+            # 避免通过输入状态校验再次同步枚举系统窗口。
+            hook.foreground = lambda: self.window_monitor.snapshot()[2]
         else:
             hook = MouseTrigger(self.freeze_click, self.events.status.emit, **self.settings,
                 dismiss_callback=self.events.dismissed.emit)

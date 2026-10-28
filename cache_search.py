@@ -18,6 +18,7 @@ from verify_card import extract_card
 
 
 CARD_DIRECTORY = re.compile(r"^[a-z0-9-]+_en_\d{3}(?:_t)?$")
+FAILED_SOURCE_RETRY_NS = 30_000_000_000
 
 
 def read_image(path: Path) -> np.ndarray:
@@ -100,6 +101,7 @@ def update_index(cache_root: Path, index_dir: Path) -> dict:
     manifest_path = index_dir / "manifest.json"
     manifest = read_json_retry(manifest_path) if manifest_path.is_file() else {"cards": []}
     records = {record["card_id"]: record for record in manifest["cards"]}
+    previous_failures = {failure["card_id"]: failure for failure in manifest.get("failures", [])}
     added = 0
     updated = 0
     pending = []
@@ -122,6 +124,13 @@ def update_index(cache_root: Path, index_dir: Path) -> dict:
         )
         if unchanged:
             records[card_id] = {**old, **fingerprint}
+            continue
+        failed = previous_failures.get(card_id)
+        if (failed and all(failed.get(key) == value for key, value in fingerprint.items())
+                and 0 < failed.get("retry_after_ns", 0)-time.time_ns() <= FAILED_SOURCE_RETRY_NS):
+            # 已下载但结构不匹配的资源也可能长期留在缓存中；不每轮重复解包。
+            # 来源变化立即重试，未变化的失败来源仍定期重试以允许恢复。
+            failures.append(failed)
             continue
         # 游戏刚写入的缓存可能尚未完整，留待下一轮重试。
         if time.time_ns() - stat.st_mtime_ns < 2_000_000_000:
@@ -149,7 +158,8 @@ def update_index(cache_root: Path, index_dir: Path) -> dict:
             else:
                 updated += 1
         except Exception as exc:
-            failures.append({"card_id": card_id, "reason": str(exc)})
+            failures.append({"card_id": card_id, "reason": str(exc), **fingerprint,
+                             "retry_after_ns": time.time_ns()+FAILED_SOURCE_RETRY_NS})
             temporary.unlink(missing_ok=True)
     document = {"cards": sorted(records.values(), key=lambda item: item["card_id"]), "failures": failures}
     if document != manifest:

@@ -89,6 +89,19 @@ class ToggleQueryTest(unittest.TestCase):
         Overlay.answer(overlay, {"id":3,"card":{"name_en":"late"}})
         overlay.popup.show_result.assert_not_called()
 
+    def test_valid_uses_published_foreground_state_without_native_window_read(self):
+        hook = HoverTrigger(Mock(), Mock(), toggle=True)
+        hook.state.step(0, True, True, (100,100))
+        epoch = hook.state.epoch
+        hook.foreground = lambda: True
+        backend = Mock()
+        backend.is_foreground.side_effect = AssertionError('native window read on UI thread')
+        with patch('overlay_input.get_backend', return_value=backend):
+            self.assertTrue(hook.valid(epoch))
+            hook.foreground = lambda: False
+            self.assertFalse(hook.valid(epoch))
+        backend.is_foreground.assert_not_called()
+
     def test_trigger_still_checks_point_under_card_when_no_keys_are_down(self):
         physical = {"pressed": True, "point": (100,100)}
         first, second, closed = threading.Event(), threading.Event(), threading.Event()
