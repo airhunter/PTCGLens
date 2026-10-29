@@ -379,7 +379,26 @@ class Recognizer(threading.Thread):
         check_query()
         if grid:
             return grid
-        # SIFT 优先确认鼠标下的具体卡图，适用于出战、备战、手牌、牌库及特写。
+        # 已知卡位先提议局部卡框，但只有当前画面的严格复核确认后
+        # 才能跳过大范围特征检索；布局自身不提供卡牌答案。
+        self.query_phase = "牌桌卡位复核"
+        layout = adaptive_layout(screenshot, self.layout)
+        check_query()
+        x, y = point
+        layout_verified = None
+        for slot in layout["slots"]:
+            check_query()
+            if slot["key"] == "preview":
+                continue
+            left, top, right, bottom = scaled_box(slot["box"], layout["reference_size"], screenshot.shape[:2])
+            if left <= x < right and top <= y < bottom:
+                layout_verified = self.grid_finder.verify_box(screenshot, point,
+                    [left, top, right, max(bottom, top+round((right-left)*1.4))])
+                if layout_verified:
+                    if layout_verified["status"] == "matched":
+                        return layout_verified
+                    break  # 有歧义时仍让原有特征检索尝试进一步区分。
+        # 其余卡面继续用局部 SIFT 检索，覆盖出战、备战、手牌、牌库及特写。
         self.query_phase = "局部特征检索"
         result = finder.find_at(screenshot, cards, point)
         check_query()
@@ -392,22 +411,8 @@ class Recognizer(threading.Thread):
                 result = None  # 几何提议未确认，继续原有卡位及局部卡面回退。
         if result:
             return result
-        # 动画横幅可能遮住牌桌边框和卡牌上沿。布局只提议卡框，
-        # 必须由鼠标所在卡面的严格图像复核确认，不能直接沿用卡位答案。
-        self.query_phase = "牌桌卡位复核"
-        layout = adaptive_layout(screenshot, self.layout)
-        check_query()
-        x, y = point
-        for slot in layout["slots"]:
-            check_query()
-            if slot["key"] == "preview":
-                continue
-            left, top, right, bottom = scaled_box(slot["box"], layout["reference_size"], screenshot.shape[:2])
-            if left <= x < right and top <= y < bottom:
-                verified = self.grid_finder.verify_box(screenshot, point,
-                    [left, top, right, max(bottom, top+round((right-left)*1.4))])
-                if verified:
-                    return verified
+        if layout_verified:
+            return layout_verified
         if is_battle_screen(screenshot):
             x, y = point
             for slot in layout["slots"]:

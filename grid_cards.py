@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+import sys
 
 import cv2
 import numpy as np
@@ -121,6 +122,7 @@ def partial_edge_boxes(image, point):
 
 class GridCardFinder:
     def __init__(self,visuals,cards):
+        self.feature_scale = 2 if sys.platform == "darwin" else 3
         self.visuals,self.cards=visuals,cards
         self.references=dict(visuals)
         self.sift=cv2.SIFT_create(nfeatures=600)
@@ -175,7 +177,8 @@ class GridCardFinder:
         key=(card_id,width,height)
         if key not in self.features:
             image=cv2.resize(self.references[card_id],(width,height),interpolation=cv2.INTER_AREA)
-            image=cv2.resize(image,None,fx=3,fy=3,interpolation=cv2.INTER_CUBIC)
+            image=cv2.resize(image,None,fx=self.feature_scale,fy=self.feature_scale,
+                             interpolation=cv2.INTER_CUBIC)
             points,descriptors=self.sift.detectAndCompute(cv2.cvtColor(image,cv2.COLOR_BGR2GRAY),None)
             # 控制连续改变窗口尺寸时的内存增长。
             if len(self.features)>=128:
@@ -290,7 +293,9 @@ class GridCardFinder:
         sample_height = round(height*sample_width/width)
         sample = cv2.resize(observed, (sample_width, round(observed.shape[0]*sample_width/width)),
                             interpolation=cv2.INTER_AREA)
-        enlarged=cv2.resize(sample,None,fx=3,fy=3,interpolation=cv2.INTER_CUBIC)
+        feature_width, feature_height = sample_width*self.feature_scale, sample_height*self.feature_scale
+        enlarged=cv2.resize(sample,None,fx=self.feature_scale,fy=self.feature_scale,
+                            interpolation=cv2.INTER_CUBIC)
         points,descriptors=self.sift.detectAndCompute(cv2.cvtColor(enlarged,cv2.COLOR_BGR2GRAY),None)
         if descriptors is None:
             return None
@@ -315,7 +320,7 @@ class GridCardFinder:
             count,ratio=int(valid.sum()),float(valid.mean())
             if count<25 or ratio<.65:
                 continue
-            normalized = source[valid].reshape(-1,2)/(sample_width*3,sample_height*3)
+            normalized = source[valid].reshape(-1,2)/(feature_width,feature_height)
             spread=np.ptp(normalized,axis=0)
             if spread[0]<.35 or spread[1]<.2:
                 continue
@@ -325,9 +330,9 @@ class GridCardFinder:
                 # 共享边框和规则区文字不足以确认插画不同的卡。
                 if len(art)<8 or np.ptp(art,axis=0)[0]<.2 or np.ptp(art,axis=0)[1]<.12:
                     continue
-            original=np.float32([[0,0],[sample_width*3,0],[sample_width*3,sample_height*3],[0,sample_height*3]])
+            original=np.float32([[0,0],[feature_width,0],[feature_width,feature_height],[0,feature_height]])
             corners=(cv2.perspectiveTransform(original.reshape(-1,1,2),matrix).reshape(-1,2)
-                     /(sample_width*3,sample_height*3)*(width,height)+(x,y)).astype(np.float32)
+                     /(feature_width,feature_height)*(width,height)+(x,y)).astype(np.float32)
             expected=np.float32([[x,y],[right,y],[right,bottom],[x,bottom]])
             if (not np.isfinite(corners).all() or not cv2.isContourConvex(corners)
                     or np.max(np.linalg.norm(corners-expected,axis=1))>max(8,np.hypot(width,height)*.12)
