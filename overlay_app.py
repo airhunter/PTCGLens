@@ -45,6 +45,7 @@ from art_image import prepare_art
 
 ROOT = Path(__file__).resolve().parent
 SETTINGS = ROOT / "output/overlay-settings.json"
+CAPTURE_WAIT_TIMEOUT = 15.0
 
 
 def configure_font(app):
@@ -651,17 +652,20 @@ class ReadingCard(QWidget):
         self.setFixedHeight(16+self.header.height()+4+viewport_height)
         return self.height() <= max_height
 
-    def loading(self, request_id, ready):
+    def loading(self, request_id, ready, *, waiting_capture=False):
         self.request_id = request_id
         self.content()
-        self.loading_label = self.label("正在识别……" if ready else "正在准备……", True)
-        self.label("可随时关闭浮卡，取消本次查询。")
+        self.loading_label = self.label("正在等待游戏画面……" if waiting_capture else
+                                        "正在识别……" if ready else "正在准备……", True)
+        self.label("画面就绪后自动查询，可随时关闭浮卡。" if waiting_capture else
+                   "可随时关闭浮卡，取消本次查询。")
         self.finish_content()
 
-    def loading_status(self, elapsed):
+    def loading_status(self, elapsed, *, waiting_capture=False):
         if self.loading_label is not None:
             dots = "."*(int(elapsed*3)%3+1)
-            self.loading_label.setText(f"正在识别 {elapsed:.1f} 秒{dots}")
+            stage = "等待游戏画面" if waiting_capture else "正在识别"
+            self.loading_label.setText(f"{stage} {elapsed:.1f} 秒{dots}")
 
     def show_result(self, payload):
         if payload["id"] != self.request_id:
@@ -849,6 +853,7 @@ class Overlay(QObject):
         self.recognition_pending = False
         self.waiting_for_cache = False
         self.waiting_for_capture = False
+        self.capture_wait_started = None
         self.capture_retry_at = None
         self.capture_retries = 0
         self.popup_box = None
@@ -1041,7 +1046,25 @@ class Overlay(QObject):
                 self.status(f"悬停查询{state}" + ("，可以松手并悬停换牌" if enabled else ""))
 
     def query_progress(self):
-        if not self.wanted or not self.recognition_pending:
+        if not self.wanted:
+            return
+        capture_started = getattr(self, "capture_wait_started", None)
+        if capture_started is not None:
+            elapsed = time.perf_counter()-capture_started
+            if elapsed < CAPTURE_WAIT_TIMEOUT:
+                self.popup.loading_status(elapsed, waiting_capture=True)
+                return
+            # 采集与识别分别计时；不把尚无画面的等待报告为识别超时。
+            self.capture_wait_started = None
+            self.capture_retry_at = None
+            self.popup.show_result({"id": self.request_id, "error":
+                "本次查询尚未取得可用画面。请确认游戏已展开并在当前桌面，将指针移到卡牌插画中央。"
+                "画面恢复后会自动重试。"
+                "可从菜单栏的运行状态查看详情。"})
+            self.reposition()
+            self.status("等待游戏画面超时；画面恢复后自动重试，也可移动指针重新查询")
+            return
+        if not self.recognition_pending:
             return
         elapsed = time.perf_counter()-self.query_started
         if elapsed < QUERY_TIMEOUT:
@@ -1070,6 +1093,7 @@ class Overlay(QObject):
         self.wanted = False
         self.waiting_for_cache = False
         self.waiting_for_capture = False
+        self.capture_wait_started = None
         self.capture_retry_at = None
         self.capture_retries = 0
         self.hook.dismiss_enabled = False
@@ -1107,20 +1131,37 @@ class Overlay(QObject):
             return
         self.hold_epoch = request.get("hold_epoch")
         self.waiting_for_cache = False
-        self.waiting_for_capture = False
-        self.capture_retry_at = None
+        waiting_capture = (self.mode in ("hover", "toggle") and request["screenshot"] is None)
+        self.waiting_for_capture = waiting_capture
+        if waiting_capture:
+            if self.capture_wait_started is None:
+                self.capture_wait_started = time.perf_counter()
+            self.capture_retry_at = None
+            if self.capture_retries < 2:
+                self.capture_retries += 1
+                self.capture_retry_at = time.monotonic()+1
+        else:
+            self.capture_wait_started = None
+            self.capture_retries = 0
+            self.capture_retry_at = None
         x, y = request["point"]
         self.query_started = request["started"]
-        self.recognition_pending = True
+        self.recognition_pending = not waiting_capture
         self.request_id += 1
         self.target_relative = relative_rect((x-10,y-10,x+10,y+10), request["bbox"])
-        self.popup.loading(self.request_id, self.worker.ready)
+        if waiting_capture:
+            # 没有帧时不向识别线程提交空任务，取消上一张牌的迟到结果。
+            self.worker.cancel(self.request_id)
+            self.popup.loading(self.request_id, self.worker.ready, waiting_capture=True)
+        else:
+            self.popup.loading(self.request_id, self.worker.ready)
         self.reposition()
         self.wanted = True
         self.hook.dismiss_enabled = True
         self.popup.show()
         self.hook.outside_dismiss_enabled = self.mode == "click"
-        self.worker.query(self.request_id, request)
+        if not waiting_capture:
+            self.worker.query(self.request_id, request)
 
     @Slot(object)
     def answer(self, payload):

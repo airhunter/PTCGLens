@@ -47,6 +47,17 @@ class ReadingCardTest(unittest.TestCase):
         self.popup.loading_status(4)
         self.assertEqual(self.popup.card_id, "test_en_001")
 
+    def test_waiting_for_frame_has_separate_progress_and_can_transition_to_recognition(self):
+        self.popup.loading(3,True,waiting_capture=True)
+        self.popup.loading_status(6.2,waiting_capture=True)
+        self.assertIn("等待游戏画面 6.2 秒",self.popup.loading_label.text())
+        self.assertNotIn("正在识别",self.popup.loading_label.text())
+        self.assertTrue(any("画面就绪后自动查询" in label.text()
+                            for label in self.popup.findChildren(QLabel)))
+        self.popup.loading(4,True)
+        self.popup.loading_status(.1)
+        self.assertIn("正在识别 0.1 秒",self.popup.loading_label.text())
+
     def test_timeout_text_remains_visible_when_replacing_visible_loading(self):
         self.popup.show()
         self.app.processEvents()

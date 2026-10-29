@@ -6,11 +6,97 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from overlay_app import Overlay, Recognizer
+from overlay_app import CAPTURE_WAIT_TIMEOUT, Overlay, Recognizer
 from overlay_input import HoverTrigger
 
 
 class QueryRecoveryTest(unittest.TestCase):
+    def waiting_overlay(self, mode="toggle"):
+        return SimpleNamespace(mode=mode,request_id=3,wanted=False,hold_epoch=None,
+            waiting_for_cache=False,waiting_for_capture=False,capture_wait_started=None,
+            capture_retries=0,capture_retry_at=None,recognition_pending=False,
+            worker=SimpleNamespace(ready=True,cancel=Mock(),query=Mock()),
+            hook=SimpleNamespace(valid=Mock(return_value=True),retry=Mock(return_value=True),invalidate=Mock()),
+            popup=Mock(),reposition=Mock(),status=Mock(),current_status="ready",status_dialog=None)
+
+    def request(self, started, screenshot=None):
+        return {"hold_epoch":7,"point":(100,100),"bbox":(0,0,500,500),
+                "started":started,"screenshot":screenshot,"capture_error":None}
+
+    def test_missing_frames_wait_without_empty_recognition_jobs_or_repeated_errors(self):
+        overlay = self.waiting_overlay()
+        for attempt, now in enumerate((10,12,14)):
+            with patch("overlay_app.time.perf_counter",return_value=now):
+                Overlay.query(overlay,self.request(now))
+                Overlay.query_progress(overlay)
+            self.assertEqual(overlay.capture_wait_started,10)
+            self.assertFalse(overlay.recognition_pending)
+            self.assertTrue(overlay.waiting_for_capture)
+            self.assertEqual(overlay.capture_retries,min(attempt+1,2))
+            self.assertEqual(overlay.capture_retry_at is not None,attempt<2)
+        overlay.worker.query.assert_not_called()
+        self.assertEqual(overlay.worker.cancel.call_count,3)
+        overlay.popup.show_result.assert_not_called()
+        overlay.popup.loading_status.assert_called_with(4,waiting_capture=True)
+        Overlay.answer(overlay,{"id":3,"card":{"name_en":"old card"}})
+        overlay.popup.show_result.assert_not_called()
+
+    def test_capture_wait_is_bounded_and_late_frame_retries_with_new_recognition_budget(self):
+        overlay = self.waiting_overlay()
+        with patch("overlay_app.time.perf_counter",return_value=10):
+            Overlay.query(overlay,self.request(10))
+        with patch("overlay_app.time.perf_counter",return_value=10+CAPTURE_WAIT_TIMEOUT+.1):
+            Overlay.query_progress(overlay)
+            Overlay.query_progress(overlay)
+        overlay.popup.show_result.assert_called_once()
+        self.assertNotIn("识别用时过长",overlay.popup.show_result.call_args.args[0]["error"])
+        self.assertIsNone(overlay.capture_retry_at)
+        self.assertIsNone(overlay.capture_wait_started)
+        Overlay.capture_state(overlay,"正在接收游戏画面")
+        overlay.hook.retry.assert_called_once_with(7)
+        fresh = self.request(30,object())
+        with patch("overlay_app.time.perf_counter",return_value=30):
+            Overlay.query(overlay,fresh)
+            Overlay.query_progress(overlay)
+        self.assertTrue(overlay.recognition_pending)
+        self.assertFalse(overlay.waiting_for_capture)
+        self.assertEqual(overlay.query_started,30)
+        overlay.worker.query.assert_called_once_with(5,fresh)
+
+    def test_close_while_waiting_prevents_late_capture_from_reopening_popup(self):
+        overlay = self.waiting_overlay()
+        with patch("overlay_app.time.perf_counter",return_value=10):
+            Overlay.query(overlay,self.request(10))
+        Overlay.dismiss(overlay)
+        Overlay.capture_state(overlay,"正在接收游戏画面")
+        with patch("overlay_app.time.perf_counter",return_value=100):
+            Overlay.query_progress(overlay)
+        overlay.hook.retry.assert_not_called()
+        overlay.popup.show_result.assert_not_called()
+        overlay.worker.query.assert_not_called()
+        self.assertIsNone(overlay.capture_wait_started)
+
+    def test_ready_notification_without_a_new_hover_cannot_leave_loading_forever(self):
+        overlay = self.waiting_overlay()
+        with patch("overlay_app.time.perf_counter",return_value=10):
+            Overlay.query(overlay,self.request(10))
+        Overlay.capture_state(overlay,"正在接收游戏画面")
+        # 指针可能正在浮卡上，此时重置悬停并不一定马上触发新查询。
+        self.assertFalse(overlay.waiting_for_capture)
+        with patch("overlay_app.time.perf_counter",return_value=10+CAPTURE_WAIT_TIMEOUT+.1):
+            Overlay.query_progress(overlay)
+        overlay.popup.show_result.assert_called_once()
+        self.assertIsNone(overlay.capture_wait_started)
+
+    def test_click_mode_keeps_existing_capture_error_path(self):
+        overlay = self.waiting_overlay("click")
+        request = self.request(10)
+        Overlay.query(overlay,request)
+        overlay.worker.query.assert_called_once_with(4,request)
+        overlay.worker.cancel.assert_not_called()
+        self.assertFalse(overlay.waiting_for_capture)
+        self.assertTrue(overlay.recognition_pending)
+
     def test_delayed_first_frame_rearms_current_query_once_after_capture_retry_exhaustion(self):
         hook = SimpleNamespace(valid=Mock(return_value=True),retry=Mock(return_value=True))
         overlay = SimpleNamespace(waiting_for_capture=True,wanted=True,mode='toggle',hold_epoch=7,
