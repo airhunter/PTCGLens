@@ -1,6 +1,7 @@
 import threading
 import time
 import unittest
+from tempfile import TemporaryDirectory
 import io
 from pathlib import Path
 from types import SimpleNamespace
@@ -24,6 +25,13 @@ class SignalRecorder:
 
 
 class QueryQueueTest(unittest.TestCase):
+    def setUp(self):
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        data_patch = patch("overlay_app.DATA_DIR", Path(directory.name))
+        data_patch.start()
+        self.addCleanup(data_patch.stop)
+
     def test_non_utf8_logging_keeps_single_answer_and_enqueues_card_art(self):
         for encoding in ("cp1252", "ascii"):
             with self.subTest(encoding=encoding):

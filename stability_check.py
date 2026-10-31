@@ -9,6 +9,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from app_paths import DATA_DIR
 from types import SimpleNamespace
 
 import cv2
@@ -95,7 +96,7 @@ def main():
         time.sleep(.01)
     if not worker.ready:
         raise RuntimeError("识别线程未就绪")
-    cards = read_json_retry(ROOT / "output/card-data.json")["cards"]
+    cards = read_json_retry(DATA_DIR / "card-data.json")["cards"]
     cases, images = [], {}
     for scene in read_json_retry(ROOT / "tests/scenes/query-cases.json")["scenes"]:
         path = ROOT / "output/query-scenes" / scene["image"]

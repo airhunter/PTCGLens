@@ -11,6 +11,13 @@ from overlay_input import HoverTrigger
 
 
 class QueryRecoveryTest(unittest.TestCase):
+    def setUp(self):
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        data_patch = patch("overlay_app.DATA_DIR", Path(directory.name))
+        data_patch.start()
+        self.addCleanup(data_patch.stop)
+
     def waiting_overlay(self, mode="toggle"):
         return SimpleNamespace(mode=mode,request_id=3,wanted=False,hold_epoch=None,
             waiting_for_cache=False,waiting_for_capture=False,capture_wait_started=None,
@@ -170,7 +177,7 @@ class QueryRecoveryTest(unittest.TestCase):
                 (root/"output/index/manifest.json").write_text(json.dumps({"cards": [{"card_id": "test"}]}))
                 (root/"output/card-data.json").write_text(json.dumps({"cards": {"test": {}}}))
                 return {"cards": 1}
-            with patch("overlay_app.ROOT", root), patch("overlay_app.refresh_once", side_effect=refresh) as build, \
+            with patch("overlay_app.DATA_DIR", root/"output"), patch("overlay_app.refresh_once", side_effect=refresh) as build, \
                  patch("overlay_app.metadata_is_stale", return_value=False):
                 worker.prepare_metadata()
             build.assert_called_once()
@@ -181,7 +188,7 @@ class QueryRecoveryTest(unittest.TestCase):
             root = Path(folder)
             worker = Recognizer(SimpleNamespace(status=Mock()), SimpleNamespace(
                 cache_root=root/"cache", game_cache=root/"game", translation_root=root/"zh"))
-            with patch("overlay_app.ROOT", root), \
+            with patch("overlay_app.DATA_DIR", root/"output"), \
                  patch("overlay_app.refresh_once", side_effect=ValueError("cache missing")), \
                  patch.object(worker.stop_event, "wait", return_value=True):
                 worker.prepare_metadata()
@@ -201,7 +208,7 @@ class QueryRecoveryTest(unittest.TestCase):
             def refresh(*args):
                 data.write_text(json.dumps({"cards": {"test": {"name_en": "Test card"}}}))
                 return {"cards": 1}
-            with patch("overlay_app.ROOT", root), patch("overlay_app.refresh_once", side_effect=refresh) as build, \
+            with patch("overlay_app.DATA_DIR", root/"output"), patch("overlay_app.refresh_once", side_effect=refresh) as build, \
                  patch("overlay_app.metadata_is_stale", return_value=False):
                 worker.prepare_metadata()
             build.assert_called_once()

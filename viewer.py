@@ -8,6 +8,7 @@ import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from app_paths import DATA_DIR, RESOURCE_DIR
 from platform_backend.paths import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE
 from atomic_json import read_json_retry
 from urllib.parse import urlsplit
@@ -15,7 +16,7 @@ from urllib.parse import urlsplit
 from card_translation import TranslationCache
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = RESOURCE_DIR
 CARD_ID = re.compile(r"^[a-z0-9-]+_en_\d{3}$")
 STATIC = {"/": "index.html", "/app.css": "app.css", "/app.js": "app.js"}
 MIME = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
@@ -103,8 +104,8 @@ def make_handler(output_dir: Path, visual_dir: Path, card_data_path: Path,
                  cache_root: Path | None = None, large_dir: Path | None = None,
                  translation_cache_path: Path | None = None):
     cache_root = cache_root or DEFAULT_CARD_CACHE
-    large_dir = large_dir or Path("output/card-large")
-    translator = TranslationCache(translation_cache_path or Path("output/translation-cache.json"))
+    large_dir = large_dir or DATA_DIR / "card-large"
+    translator = TranslationCache(translation_cache_path or DATA_DIR / "translation-cache.json")
     class Handler(BaseHTTPRequestHandler):
         def send_bytes(self, body: bytes, mime: str, status: int = 200) -> None:
             self.send_response(status)
@@ -206,13 +207,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
-    parser.add_argument("--output-dir", type=Path, default=Path("output/battle-live"))
-    parser.add_argument("--visual-dir", type=Path, default=Path("output/card-thumbnails"))
-    parser.add_argument("--large-dir", type=Path, default=Path("output/card-large"))
+    parser.add_argument("--output-dir", type=Path, default=DATA_DIR / "battle-live")
+    parser.add_argument("--visual-dir", type=Path, default=DATA_DIR / "card-thumbnails")
+    parser.add_argument("--large-dir", type=Path, default=DATA_DIR / "card-large")
     parser.add_argument("--cache-root", type=Path,
                         default=DEFAULT_CARD_CACHE)
-    parser.add_argument("--card-data", type=Path, default=Path("output/card-data.json"))
-    parser.add_argument("--translation-cache", type=Path, default=Path("output/translation-cache.json"))
+    parser.add_argument("--card-data", type=Path, default=DATA_DIR / "card-data.json")
+    parser.add_argument("--translation-cache", type=Path, default=DATA_DIR / "translation-cache.json")
     args = parser.parse_args()
     server = ThreadingHTTPServer(
         (args.host, args.port),

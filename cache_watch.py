@@ -6,6 +6,7 @@ import argparse
 import json
 import time
 from pathlib import Path
+from app_paths import DATA_DIR, DEFAULT_TRANSLATION_ROOT
 from platform_backend.paths import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE
 
 from battle_multi import build_visual_index
@@ -25,7 +26,7 @@ def metadata_is_stale(card_data_path: Path, game_cache: Path, translation_root: 
     sources.extend(translation_root.glob("*.json"))
     sources.extend((LOCAL_CHINESE_PATH, Path(__file__).with_name("card_data.py"),
                     Path(__file__).with_name("local_chinese.py")))
-    return any(path.stat().st_mtime_ns > generated_at for path in sources)
+    return any(path.stat().st_mtime_ns > generated_at for path in sources if path.is_file())
 
 
 def refresh_once(
@@ -63,12 +64,12 @@ def main() -> None:
     parser.add_argument("--once", action="store_true", help="只扫描一次")
     parser.add_argument("--interval", type=float, default=5, help="轮询间隔（秒）")
     parser.add_argument("--cache-root", type=Path, default=DEFAULT_CARD_CACHE)
-    parser.add_argument("--index-dir", type=Path, default=Path("output/index"))
-    parser.add_argument("--visual-dir", type=Path, default=Path("output/card-thumbnails"))
+    parser.add_argument("--index-dir", type=Path, default=DATA_DIR / "index")
+    parser.add_argument("--visual-dir", type=Path, default=DATA_DIR / "card-thumbnails")
     parser.add_argument("--game-cache", type=Path, default=DEFAULT_DATABASE_CACHE)
-    parser.add_argument("--translation-root", type=Path, default=Path(".tmp/ptcg-live-zh-mod/databases_zh-CN"))
-    parser.add_argument("--card-data", type=Path, default=Path("output/card-data.json"))
-    parser.add_argument("--status", type=Path, default=Path("output/cache-watch-status.json"))
+    parser.add_argument("--translation-root", type=Path, default=DEFAULT_TRANSLATION_ROOT)
+    parser.add_argument("--card-data", type=Path, default=DATA_DIR / "card-data.json")
+    parser.add_argument("--status", type=Path, default=DATA_DIR / "cache-watch-status.json")
     args = parser.parse_args()
     if args.interval < 1:
         parser.error("--interval must be at least 1 second")

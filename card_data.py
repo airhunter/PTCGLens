@@ -9,6 +9,7 @@ import json
 import re
 import struct
 from pathlib import Path
+from app_paths import DATA_DIR, DEFAULT_TRANSLATION_ROOT
 from platform_backend.paths import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE
 
 from atomic_json import read_json_retry, write_json_atomic
@@ -238,11 +239,11 @@ def build_card_data(index_dir: Path, game_cache: Path, translation_root: Path, o
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--index-dir", type=Path, default=Path("output/index"))
+    parser.add_argument("--index-dir", type=Path, default=DATA_DIR / "index")
     parser.add_argument("--game-cache", type=Path, default=DEFAULT_DATABASE_CACHE)
-    parser.add_argument("--translation-root", type=Path, default=Path(".tmp/ptcg-live-zh-mod/databases_zh-CN"))
-    parser.add_argument("--output", type=Path, default=Path("output/card-data.json"))
-    parser.add_argument("--coverage-report", type=Path, default=Path("output/chinese-coverage.json"))
+    parser.add_argument("--translation-root", type=Path, default=DEFAULT_TRANSLATION_ROOT)
+    parser.add_argument("--output", type=Path, default=DATA_DIR / "card-data.json")
+    parser.add_argument("--coverage-report", type=Path, default=DATA_DIR / "chinese-coverage.json")
     args = parser.parse_args()
     document = build_card_data(args.index_dir, args.game_cache, args.translation_root, args.output)
     write_json_atomic(args.coverage_report, document["coverage"])

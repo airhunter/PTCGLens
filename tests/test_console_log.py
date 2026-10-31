@@ -1,11 +1,33 @@
 import io
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-from console_log import log
+from console_log import configure_file_logging, log, _logger
 
 
 class ConsoleLogTest(unittest.TestCase):
+    def test_windowless_start_keeps_bounded_utf8_logs(self):
+        previous = _logger.handlers[:]
+        for handler in previous:
+            _logger.removeHandler(handler)
+        try:
+            with TemporaryDirectory() as folder:
+                path = Path(folder)/"logs/overlay.log"
+                configure_file_logging(path)
+                handler = _logger.handlers[0]
+                self.assertEqual(handler.maxBytes, 2*1024*1024)
+                self.assertEqual(handler.backupCount, 3)
+                with patch("sys.stdout", None):
+                    log("后台查询正常")
+                self.assertIn("后台查询正常", path.read_text(encoding="utf-8"))
+                handler.close()
+                _logger.removeHandler(handler)
+        finally:
+            for handler in previous:
+                _logger.addHandler(handler)
+
     def test_utf8_preserves_chinese_and_non_utf8_escapes_unrepresentable_text(self):
         for encoding in ("utf-8", "cp1252", "ascii"):
             with self.subTest(encoding=encoding):

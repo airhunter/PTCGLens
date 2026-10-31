@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from app_paths import DATA_DIR, RESOURCE_DIR, DEFAULT_TRANSLATION_ROOT
 from platform_backend.paths import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE, chinese_font_path
 from atomic_json import read_json_retry
 
@@ -351,16 +352,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subcommands = parser.add_subparsers(dest="command", required=True)
     build = subcommands.add_parser("build-visual", help="Extract card thumbnails from the local Unity cache")
-    build.add_argument("--index-dir", type=Path, default=Path("output/index"))
+    build.add_argument("--index-dir", type=Path, default=DATA_DIR / "index")
     build.add_argument("--cache-root", type=Path, default=DEFAULT_CARD_CACHE)
-    build.add_argument("--visual-dir", type=Path, default=Path("output/card-thumbnails"))
+    build.add_argument("--visual-dir", type=Path, default=DATA_DIR / "card-thumbnails")
     find = subcommands.add_parser("search", help="Recognise cards in each configured battle slot")
     find.add_argument("--screenshot", type=Path, required=True)
-    find.add_argument("--layout", type=Path, default=Path("battle_layout.sample.json"))
-    find.add_argument("--index-dir", type=Path, default=Path("output/index"))
-    find.add_argument("--visual-dir", type=Path, default=Path("output/card-thumbnails"))
-    find.add_argument("--card-data", type=Path, default=Path("output/card-data.json"))
-    find.add_argument("--output", type=Path, default=Path("output/battle-multi.json"))
+    find.add_argument("--layout", type=Path, default=RESOURCE_DIR / "battle_layout.sample.json")
+    find.add_argument("--index-dir", type=Path, default=DATA_DIR / "index")
+    find.add_argument("--visual-dir", type=Path, default=DATA_DIR / "card-thumbnails")
+    find.add_argument("--card-data", type=Path, default=DATA_DIR / "card-data.json")
+    find.add_argument("--output", type=Path, default=DATA_DIR / "battle-multi.json")
     find.add_argument("--adaptive-hand", action="store_true", help="按截图自动定位手牌")
     find.add_argument("--adaptive-preview", action="store_true", help="按截图定位放大预览")
     args = parser.parse_args()

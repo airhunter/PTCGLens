@@ -12,8 +12,8 @@ import time
 from pathlib import Path
 import cv2
 
-from PySide6.QtCore import QLockFile, QObject, QTimer, Qt, Signal, Slot
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QImage, QPainter, QPixmap
+from PySide6.QtCore import QObject, QTimer, Qt, QUrl, Signal, Slot
+from PySide6.QtGui import QColor, QDesktopServices, QFont, QFontDatabase, QIcon, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (QApplication, QBoxLayout, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout,
                               QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton,
                               QSystemTrayIcon, QVBoxLayout, QWidget, QScrollArea, QFrame, QDoubleSpinBox, QStyle,
@@ -39,12 +39,13 @@ from atomic_json import read_json_retry, write_json_atomic
 from window_capture import WindowCaptureSession, crop_client_frame
 from query_control import QUERY_TIMEOUT, TIMEOUT_MESSAGE, QueryCancelled, QueryTimedOut, check_query, query_scope
 from window_monitor import GameWindowMonitor
-from console_log import log
+from console_log import configure_file_logging, log
+from app_paths import DATA_DIR, RESOURCE_DIR, DEFAULT_TRANSLATION_ROOT, migrate_preferences, migrate_legacy_cache
+from app_instance import AppInstance, send_command
 from art_image import prepare_art
 
 
-ROOT = Path(__file__).resolve().parent
-SETTINGS = ROOT / "output/overlay-settings.json"
+SETTINGS = DATA_DIR / "overlay-settings.json"
 CAPTURE_WAIT_TIMEOUT = 15.0
 
 
@@ -80,14 +81,14 @@ class Recognizer(threading.Thread):
         self.capture_active = True
         self.ready = False
         self.latest_request = 0
-        self.translator = TranslationCache(ROOT / "output/translation-cache.json")
+        self.translator = TranslationCache(DATA_DIR / "translation-cache.json")
         self.art_jobs = LatestJobQueue()
         self.translation_jobs = queue.Queue()
         self.last_art = None
         self.query_card = None
-        self.diagnostics = QueryFailureRecorder(ROOT / "output/query-failures")
-        self.image_sources = CardImageSources(ROOT / "output/card-sources",args.cache_root,
-                                              ROOT / "output/card-thumbnails",ROOT / "output/card-large")
+        self.diagnostics = QueryFailureRecorder(DATA_DIR / "query-failures")
+        self.image_sources = CardImageSources(DATA_DIR / "card-sources",args.cache_root,
+                                              DATA_DIR / "card-thumbnails",DATA_DIR / "card-large")
 
     def translate(self, request_id, number, source):
         if request_id == self.latest_request:
@@ -155,9 +156,9 @@ class Recognizer(threading.Thread):
                 break
             last_refresh = time.monotonic()
             try:
-                refreshed = refresh_once(self.args.cache_root, ROOT / "output/index",
-                    ROOT / "output/card-thumbnails", self.args.game_cache,
-                    self.args.translation_root, ROOT / "output/card-data.json")
+                refreshed = refresh_once(self.args.cache_root, DATA_DIR / "index",
+                    DATA_DIR / "card-thumbnails", self.args.game_cache,
+                    self.args.translation_root, DATA_DIR / "card-data.json")
                 if self.stop_event.is_set():
                     break
                 if any(refreshed[key] for key in ("added", "updated", "visual_rebuilt", "card_data_refreshed")):
@@ -175,10 +176,10 @@ class Recognizer(threading.Thread):
     def reload_resources(self, refreshed):
         previous = self.resources
         if any(refreshed[key] for key in ("added", "updated", "visual_rebuilt")):
-            replacement = load_resources(ROOT / "output/index", ROOT / "output/card-thumbnails",
-                                         ROOT / "output/card-data.json", previous=previous)
+            replacement = load_resources(DATA_DIR / "index", DATA_DIR / "card-thumbnails",
+                                         DATA_DIR / "card-data.json", previous=previous)
         else:
-            cards = read_json_retry(ROOT / "output/card-data.json")["cards"]
+            cards = read_json_retry(DATA_DIR / "card-data.json")["cards"]
             replacement = (previous[0], cards, previous[2], previous[3])
         self.resources = replacement
         self.index_revision += 1
@@ -188,8 +189,8 @@ class Recognizer(threading.Thread):
         self.jobs.put((request_id, request))
 
     def prepare_metadata(self):
-        path = ROOT / "output/card-data.json"
-        manifest = ROOT / "output/index/manifest.json"
+        path = DATA_DIR / "card-data.json"
+        manifest = DATA_DIR / "index/manifest.json"
         last_status = None
         while (not manifest.is_file() or not path.is_file() or not read_json_retry(manifest).get("cards")
                or not read_json_retry(path).get("cards")):
@@ -198,8 +199,8 @@ class Recognizer(threading.Thread):
             try:
                 if last_status is None:
                     self.events.status.emit("首次准备：正在检查游戏缓存并建立卡牌索引……")
-                result = refresh_once(self.args.cache_root, ROOT / "output/index",
-                    ROOT / "output/card-thumbnails", self.args.game_cache, self.args.translation_root, path)
+                result = refresh_once(self.args.cache_root, DATA_DIR / "index",
+                    DATA_DIR / "card-thumbnails", self.args.game_cache, self.args.translation_root, path)
                 if result["cards"] and path.is_file() and read_json_retry(path).get("cards"):
                     break
                 message = ("已经找到卡图，正在等待英文卡牌资料。请让游戏完成数据下载，程序会自动继续。"
@@ -219,7 +220,7 @@ class Recognizer(threading.Thread):
         if metadata_is_stale(path, self.args.game_cache, self.args.translation_root):
             self.events.status.emit("正在更新本地中文资料……")
             try:
-                build_card_data(ROOT / "output/index", self.args.game_cache, self.args.translation_root, path)
+                build_card_data(DATA_DIR / "index", self.args.game_cache, self.args.translation_root, path)
             except Exception as exc:
                 if not path.is_file():
                     raise
@@ -229,12 +230,18 @@ class Recognizer(threading.Thread):
         set_dpi_awareness()
         try:
             self.events.status.emit("正在加载本地卡牌索引……")
+            if getattr(self.args, "import_legacy", False):
+                self.events.status.emit("正在检查并导入旧版缓存……")
+                try:
+                    migrate_legacy_cache(DATA_DIR, RESOURCE_DIR, cancelled=self.stop_event.is_set)
+                except OSError as exc:
+                    log(f"旧版缓存未全部导入，将按需重新准备：{exc}")
             self.prepare_metadata()
             if self.stop_event.is_set():
                 return
-            self.resources = load_resources(ROOT / "output/index", ROOT / "output/card-thumbnails",
-                                            ROOT / "output/card-data.json")
-            self.layout = json.loads((ROOT / "battle_layout.sample.json").read_text(encoding="utf-8"))
+            self.resources = load_resources(DATA_DIR / "index", DATA_DIR / "card-thumbnails",
+                                            DATA_DIR / "card-data.json")
+            self.layout = json.loads((RESOURCE_DIR / "battle_layout.sample.json").read_text(encoding="utf-8"))
             self.ready = True
             self.events.status.emit("已就绪，等待游戏内快捷查询")
             self.events.ready.emit()
@@ -706,7 +713,7 @@ class ReadingCard(QWidget):
         self.rules_layout.setContentsMargins(0,0,0,0)
         self.rules_layout.setSpacing(5)
         self.media_layout.addWidget(self.rules,0,Qt.AlignmentFlag.AlignTop)
-        thumbnail = QPixmap(str(ROOT / "output/card-thumbnails" / f"{card['card_id']}.png"))
+        thumbnail = QPixmap(str(DATA_DIR / "card-thumbnails" / f"{card['card_id']}.png"))
         if not thumbnail.isNull():
             self.set_art_pixmap(thumbnail)
         self.add_text(0, card.get("card_text_zh"), card.get("card_text_en"), card.get("card_text_zh_source"))
@@ -811,10 +818,23 @@ class ReadingCard(QWidget):
                 self.set_art_pixmap(pixmap)
 
 
+class StatusDialog(QDialog):
+    """没有系统托盘时，关闭唯一控制窗口即退出，避免留下无法关闭的进程。"""
+    def __init__(self, quit_callback):
+        super().__init__()
+        self.quit_callback = quit_callback
+
+    def closeEvent(self, event):
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            self.quit_callback()
+        super().closeEvent(event)
+
+
 class Overlay(QObject):
     def __init__(self, app, args):
         super().__init__()
         self.app, self.args = app, args
+        self.stopped = False
         try:
             self.settings = json.loads(SETTINGS.read_text(encoding="utf-8"))
             get_backend().validate_shortcut(self.settings["shortcut"])
@@ -894,9 +914,14 @@ class Overlay(QObject):
         self.menu.addAction("运行状态与准备", self.show_status)
         self.menu.addAction("关闭阅读浮卡", self.dismiss)
         self.menu.addSeparator()
-        self.menu.addAction("退出 PTCGLens", app.quit)
+        self.menu.addAction("打开程序数据目录", self.open_data_directory)
+        self.menu.addAction("打开日志目录", self.open_log_directory)
+        self.menu.addSeparator()
+        self.menu.addAction("退出 PTCGLens", self.quit)
         self.tray.setContextMenu(self.menu)
+        self.tray.activated.connect(self.tray_activated)
         self.tray.show()
+        self.had_tray = QSystemTrayIcon.isSystemTrayAvailable()
         self.window_monitor = GameWindowMonitor()
         self.window_monitor.start()
         self.timer = QTimer()
@@ -907,8 +932,21 @@ class Overlay(QObject):
         self.worker.start()
         self.status("正在准备游戏内快捷查询")
         self.tray.showMessage("PTCGLens", self.instruction(), QSystemTrayIcon.MessageIcon.Information, 5000)
-        if not (ROOT / "output/index/manifest.json").is_file() or not (ROOT / "output/card-data.json").is_file():
-            QTimer.singleShot(0, self.show_status)
+        # 首次启动及双击重开均给出可见的管理和退出入口。
+        QTimer.singleShot(0, self.show_status)
+
+    def tray_activated(self, reason):
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
+            self.show_status()
+
+    def open_data_directory(self):
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(DATA_DIR)))
+
+    def open_log_directory(self):
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(DATA_DIR / "logs")))
+
+    def quit(self):
+        self.app.quit()
 
     def make_hook(self):
         if self.mode in ("hover", "toggle"):
@@ -959,8 +997,10 @@ class Overlay(QObject):
             self.capture_label.setText(text)
 
     def show_status(self):
+        if self.stopped:
+            return
         if self.status_dialog is None:
-            self.status_dialog = QDialog()
+            self.status_dialog = StatusDialog(self.quit)
             self.status_dialog.setWindowTitle("PTCGLens · 运行状态与准备")
             self.status_dialog.resize(580, 330)
             layout = QVBoxLayout(self.status_dialog)
@@ -972,27 +1012,50 @@ class Overlay(QObject):
             layout.addWidget(self.capture_label)
             hint = QLabel("先启动游戏并打开卡牌页面，程序会自动建立和更新索引。\n"
                           "就绪后："+self.instruction()+"。\n"
-                          "缺少中文对照时会自动翻译，英文始终保留。")
+                          "缺少中文对照时会自动翻译，英文始终保留。\n"
+                          "关闭查询只收起浮卡；退出整个程序请点击下方“退出 PTCGLens”。")
             hint.setWordWrap(True)
             layout.addWidget(hint)
+            self.lifecycle_hint = QLabel()
+            self.lifecycle_hint.setWordWrap(True)
+            layout.addWidget(self.lifecycle_hint)
             for name, path in (("卡图目录", self.args.cache_root), ("英文资料目录", self.args.game_cache),
-                               ("简中对照目录（可选）", self.args.translation_root)):
+                               ("简中对照目录（可选）", self.args.translation_root),
+                               ("程序数据目录", DATA_DIR), ("日志目录", DATA_DIR / "logs")):
                 label = QLabel(f"{name}：{path}")
                 label.setWordWrap(True)
                 layout.addWidget(label)
             refresh = QPushButton("检查新卡缓存")
             refresh.clicked.connect(self.worker.refresh_requested.set)
             layout.addWidget(refresh)
-            close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-            close.button(QDialogButtonBox.StandardButton.Close).setText("关闭")
-            close.rejected.connect(self.status_dialog.close)
-            layout.addWidget(close)
+            folders = QHBoxLayout()
+            for text, callback in (("打开数据目录", self.open_data_directory), ("打开日志目录", self.open_log_directory)):
+                button = QPushButton(text)
+                button.clicked.connect(callback)
+                folders.addWidget(button)
+            layout.addLayout(folders)
+            self.background_button = QPushButton("返回后台")
+            self.background_button.clicked.connect(self.status_dialog.close)
+            layout.addWidget(self.background_button)
+            quit_button = QPushButton("退出 PTCGLens")
+            quit_button.clicked.connect(self.quit)
+            layout.addWidget(quit_button)
         self.status_label.setText(self.current_status)
         self.capture_label.setText(self.current_capture_state)
+        tray_available = QSystemTrayIcon.isSystemTrayAvailable()
+        self.background_button.setVisible(tray_available)
+        self.lifecycle_hint.setText("关闭窗口后继续在菜单栏／系统托盘运行；再次双击启动程序可重开本窗口。"
+            if tray_available else "系统托盘不可用；请保留此窗口。关闭窗口会退出程序。")
+        self.status_dialog.showNormal()
         self.status_dialog.show()
         self.status_dialog.raise_()
+        self.status_dialog.activateWindow()
 
     def poll(self):
+        tray_available = QSystemTrayIcon.isSystemTrayAvailable()
+        if self.had_tray and not tray_available:
+            self.show_status()
+        self.had_tray = tray_available
         now = time.perf_counter()
         gap = now-self.last_ui_poll
         self.last_ui_poll = now
@@ -1315,7 +1378,14 @@ class Overlay(QObject):
         dialog.exec()
 
     def stop(self):
+        if self.stopped:
+            return
+        self.stopped = True
+        log("正在退出 PTCGLens……")
         self.timer.stop()
+        self.dismiss()
+        if self.status_dialog is not None:
+            self.status_dialog.hide()
         self.window_monitor.stop()
         self.hook.stop()
         self.worker.stop_event.set()
@@ -1325,41 +1395,57 @@ class Overlay(QObject):
         self.worker.join(timeout=3)
         self.window_monitor.join(timeout=.2)
         self.tray.hide()
+        log("PTCGLens 退出清理完成。")
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cache-root", type=Path, default=DEFAULT_CARD_CACHE)
     parser.add_argument("--game-cache", type=Path, default=DEFAULT_DATABASE_CACHE)
-    parser.add_argument("--translation-root", type=Path, default=ROOT / ".tmp/ptcg-live-zh-mod/databases_zh-CN")
+    parser.add_argument("--translation-root", type=Path, default=DEFAULT_TRANSLATION_ROOT)
     parser.add_argument("--diagnose-input", action="store_true", help="在终端输出悬停或点击查询输入诊断")
     args = parser.parse_args(argv)
+    args.import_legacy = True
     set_dpi_awareness()
     plugin_directory = prepare_qt_plugins()
     app = QApplication(sys.argv[:1])
+    app.setApplicationName("PTCGLens")
+    app.setOrganizationName("PTCGLens")
     configure_font(app)
     app.setQuitOnLastWindowClosed(False)
-    # 在后台采集和匹配启动前设置；给游戏及界面保留 CPU，避免占满所有核心。
-    cv2.setNumThreads(2)
-    if cv2.getNumThreads() > 2:
-        # Mac 的 GCD 后端忽略正数限制；0 可关闭其内部并行区域。
-        cv2.setNumThreads(0)
-    missing = check_permissions(input_required=True, request=True)
-    if missing:
-        QMessageBox.warning(None, "PTCGLens · 需要系统权限", "\n\n".join(missing)+
-                            "\n\n授权实际启动程序的终端或应用后，重启该应用并重新运行 PTCGLens。")
+    instance = AppInstance(DATA_DIR)
+    if not instance.start():
+        if send_command(DATA_DIR, "show"):
+            return 0
+        QMessageBox.information(None, "PTCGLens", "程序正在启动或退出，请稍后重新打开。")
         return 1
-    (ROOT / "output").mkdir(parents=True, exist_ok=True)
-    instance_lock = QLockFile(str(ROOT / "output/overlay.lock"))
-    instance_lock.setStaleLockTime(0)
-    if not instance_lock.tryLock(0):
-        log("游戏内快捷查询已经运行，请使用系统托盘中的 PTCGLens 图标。")
-        return 1
-    overlay = Overlay(app, args)
+    overlay = None
     try:
+        configure_file_logging(DATA_DIR / "logs/overlay.log")
+        log(f"启动 PTCGLens；程序数据目录：{DATA_DIR}")
+        try:
+            migrate_preferences(DATA_DIR, RESOURCE_DIR)
+        except OSError as exc:
+            log(f"旧版设置未全部导入，继续使用用户目录：{exc}")
+        # 在后台采集和匹配启动前设置，避免占满所有核心。
+        cv2.setNumThreads(2)
+        if cv2.getNumThreads() > 2:
+            cv2.setNumThreads(0)
+        missing = check_permissions(input_required=True, request=True)
+        if missing:
+            QMessageBox.warning(None, "PTCGLens · 需要系统权限", "\n\n".join(missing)+
+                                "\n\n授权实际启动的 PTCGLens 应用（源码运行时为终端或宿主应用），然后重新启动。")
+            return 1
+        overlay = Overlay(app, args)
+        instance.show_requested.connect(overlay.show_status)
+        instance.quit_requested.connect(overlay.quit)
         return app.exec()
     finally:
-        instance_lock.unlock()
+        try:
+            if overlay is not None:
+                overlay.stop()
+        finally:
+            instance.close()
 
 
 if __name__ == "__main__":

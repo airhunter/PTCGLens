@@ -5,6 +5,7 @@ import json
 import sys
 import time
 from pathlib import Path
+from app_paths import DATA_DIR
 from types import SimpleNamespace
 import cv2
 from PIL import Image
@@ -110,9 +111,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("once", "watch", "windows", "check-hotkeys", "check-permissions"))
     parser.add_argument("--title")
-    parser.add_argument("--index-dir", type=Path, default=Path("output/index"))
-    parser.add_argument("--output-dir", type=Path, default=Path("output/live"))
-    parser.add_argument("--card-data", type=Path, default=Path("output/card-data.json"))
+    parser.add_argument("--index-dir", type=Path, default=DATA_DIR / "index")
+    parser.add_argument("--output-dir", type=Path, default=DATA_DIR / "live")
+    parser.add_argument("--card-data", type=Path, default=DATA_DIR / "card-data.json")
     args = parser.parse_args()
     set_dpi_awareness()
     missing = check_permissions(input_required=args.mode in ("watch", "check-hotkeys"),

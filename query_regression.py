@@ -8,6 +8,7 @@ import json
 import time
 import unicodedata
 from pathlib import Path
+from app_paths import DATA_DIR
 from types import SimpleNamespace
 
 import cv2
@@ -45,7 +46,7 @@ def main():
         if not (args.sample_root/scene['image']).is_file():
             parser.error(f"缺少本地样本：{args.sample_root/scene['image']}；截图不会随源码分发")
     worker=Recognizer(Events(),SimpleNamespace(cache_root=DEFAULT_CARD_CACHE))
-    worker.resources=load_resources(ROOT/'output/index',ROOT/'output/card-thumbnails',ROOT/'output/card-data.json')
+    worker.resources=load_resources(DATA_DIR/'index',DATA_DIR/'card-thumbnails',DATA_DIR/'card-data.json')
     worker.layout=json.loads((ROOT/'battle_layout.sample.json').read_text(encoding='utf-8'))
     cards=worker.resources[1]
     rows=[]

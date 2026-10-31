@@ -11,6 +11,17 @@ from local_chinese import LOCAL_CHINESE_PATH
 
 
 class MetadataRefreshTest(unittest.TestCase):
+    def test_bundled_resources_do_not_require_python_source_files_to_exist(self):
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            supplement = root / "local.json"
+            supplement.write_text("{}")
+            output = root / "cards.json"
+            output.write_text("{}")
+            with patch("cache_watch.__file__", str(root/"bundle/cache_watch.py")), \
+                 patch("cache_watch.LOCAL_CHINESE_PATH", supplement):
+                self.assertFalse(metadata_is_stale(output, root/"game", root/"zh"))
+
     def test_missing_optional_chinese_and_git_keep_english_and_local_supplement(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

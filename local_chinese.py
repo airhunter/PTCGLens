@@ -6,9 +6,10 @@ import hashlib
 import json
 from collections import Counter
 from pathlib import Path
+from app_paths import RESOURCE_DIR
 
 
-LOCAL_CHINESE_PATH = Path(__file__).parent / "translations/local-zh.json"
+LOCAL_CHINESE_PATH = RESOURCE_DIR / "translations/local-zh.json"
 
 
 def load_local_chinese(path: Path = LOCAL_CHINESE_PATH) -> dict:

@@ -8,6 +8,7 @@ import re
 import time
 from functools import lru_cache
 from pathlib import Path
+from app_paths import DATA_DIR
 from platform_backend.paths import DEFAULT_CARD_CACHE, DEFAULT_DATABASE_CACHE
 from atomic_json import read_json_retry, write_json_atomic
 
@@ -269,14 +270,14 @@ def main() -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
     build = subparsers.add_parser("build")
     build.add_argument("--cache-root", type=Path, required=True)
-    build.add_argument("--index-dir", type=Path, default=Path("output/index"))
+    build.add_argument("--index-dir", type=Path, default=DATA_DIR / "index")
     update = subparsers.add_parser("update")
     update.add_argument("--cache-root", type=Path, default=DEFAULT_CARD_CACHE)
-    update.add_argument("--index-dir", type=Path, default=Path("output/index"))
+    update.add_argument("--index-dir", type=Path, default=DATA_DIR / "index")
     search = subparsers.add_parser("search")
-    search.add_argument("--index-dir", type=Path, default=Path("output/index"))
+    search.add_argument("--index-dir", type=Path, default=DATA_DIR / "index")
     search.add_argument("--screenshot", type=Path, required=True)
-    search.add_argument("--result", type=Path, default=Path("output/search-result.json"))
+    search.add_argument("--result", type=Path, default=DATA_DIR / "search-result.json")
     args = parser.parse_args()
     if args.command == "build":
         build_index(args.cache_root, args.index_dir)

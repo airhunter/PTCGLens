@@ -10,6 +10,7 @@ import time
 import unicodedata
 import urllib.request
 from pathlib import Path
+from app_paths import RESOURCE_DIR
 from urllib.parse import urlsplit
 
 import cv2
@@ -166,13 +167,12 @@ def same_art(reference, candidate, pokemon=False):
 class CardImageSources:
     def __init__(self, root, cache_root, visual_dir, large_dir):
         self.root,self.cache_root,self.visual_dir,self.large_dir = map(Path,(root,cache_root,visual_dir,large_dir))
-        self.root.mkdir(parents=True,exist_ok=True)
         self.catalog = None
         self.preference = "zh"
         self.retry_after = {}
         self.cancelled = lambda:False
         self.deadline = float("inf")
-        self.bridges = json.loads((Path(__file__).parent / "card-image-rules.json").read_text(encoding="utf-8"))
+        self.bridges = json.loads((RESOURCE_DIR / "card-image-rules.json").read_text(encoding="utf-8"))
 
     @staticmethod
     def download(url, limit=8*1024*1024):
@@ -202,6 +202,7 @@ class CardImageSources:
         result = json.loads(body)
         if not isinstance(result,dict):
             raise ValueError("卡牌数据格式无效")
+        path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(".tmp")
         temporary.write_bytes(body)
         temporary.replace(path)
@@ -218,6 +219,7 @@ class CardImageSources:
         if image is None or image.shape[1]<300 or image.shape[0]<400 or image.shape[0]>4000 or image.shape[1]>4000:
             raise ValueError("卡图不是可用的高清图片")
         if not image_path.is_file():
+            image_path.parent.mkdir(parents=True, exist_ok=True)
             temporary = image_path.with_suffix(".tmp")
             temporary.write_bytes(body)
             temporary.replace(image_path)
@@ -293,6 +295,7 @@ class CardImageSources:
                     "language":"英文","provider":"游戏缓存","source_id":card_id}
         if preference == "local" or cancelled():
             return local()
+        self.root.mkdir(parents=True, exist_ok=True)
         # 缓存绑定完整规则签名；索引规则改变时不复用此前的对应关系。
         signature = hashlib.sha256(json.dumps(
             [MAPPING_VERSION,card,self.bridges],sort_keys=True,ensure_ascii=False).encode()).hexdigest()

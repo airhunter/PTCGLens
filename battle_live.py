@@ -6,6 +6,7 @@ import argparse
 import json
 import time
 from pathlib import Path
+from app_paths import DATA_DIR, RESOURCE_DIR, DEFAULT_TRANSLATION_ROOT
 
 import cv2
 import numpy as np
@@ -137,14 +138,14 @@ def main() -> None:
     parser.add_argument("--max-idle", type=float, default=30, help="有限帧模式下等待游戏画面的最长秒数")
     parser.add_argument("--capture-mode", choices=("window", "screen"), default="window",
                         help="window 可在游戏被浏览器遮挡时继续采集；screen 为旧的前台截屏模式")
-    parser.add_argument("--layout", type=Path, default=Path("battle_layout.sample.json"))
-    parser.add_argument("--index-dir", type=Path, default=Path("output/index"))
-    parser.add_argument("--visual-dir", type=Path, default=Path("output/card-thumbnails"))
-    parser.add_argument("--card-data", type=Path, default=Path("output/card-data.json"))
+    parser.add_argument("--layout", type=Path, default=RESOURCE_DIR / "battle_layout.sample.json")
+    parser.add_argument("--index-dir", type=Path, default=DATA_DIR / "index")
+    parser.add_argument("--visual-dir", type=Path, default=DATA_DIR / "card-thumbnails")
+    parser.add_argument("--card-data", type=Path, default=DATA_DIR / "card-data.json")
     parser.add_argument("--cache-root", type=Path, default=DEFAULT_CARD_CACHE)
     parser.add_argument("--game-cache", type=Path, default=DEFAULT_DATABASE_CACHE)
-    parser.add_argument("--translation-root", type=Path, default=Path(".tmp/ptcg-live-zh-mod/databases_zh-CN"))
-    parser.add_argument("--output-dir", type=Path, default=Path("output/battle-live"))
+    parser.add_argument("--translation-root", type=Path, default=DEFAULT_TRANSLATION_ROOT)
+    parser.add_argument("--output-dir", type=Path, default=DATA_DIR / "battle-live")
     args = parser.parse_args()
     if args.frames < 0 or args.interval < 0 or args.force_after <= 0 or args.cache_interval < 1:
         parser.error("采集帧数、间隔或刷新周期无效")
