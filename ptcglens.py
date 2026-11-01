@@ -36,6 +36,8 @@ def main(argv=None) -> int:
     mode.add_argument("--overlay", action="store_true", help="启动浮卡（默认；兼容原启动命令）")
     mode.add_argument("--web", action="store_true", help="启动实时识别与本地网页服务（源码运行）")
     mode.add_argument("--quit", action="store_true", help="退出当前用户数据目录下正在运行的浮卡")
+    mode.add_argument("--self-check", type=Path, metavar="REPORT.json", help="检查打包依赖并保存报告，不采集画面或请求权限")
+    parser.add_argument("--check-network", action="store_true", help="自检时验证在线翻译；需搭配 --self-check")
     parser.add_argument("--check-permissions", action="store_true", help="只检查权限；默认包含浮卡输入权限")
     parser.add_argument("--port", type=int, help="网页模式端口，默认 8765；需搭配 --web")
     parser.add_argument("--cache-root", type=Path, help="游戏卡图缓存目录")
@@ -44,6 +46,14 @@ def main(argv=None) -> int:
     parser.add_argument("--capture-mode", choices=("window", "screen"), help="网页采集模式；需搭配 --web")
     parser.add_argument("--diagnose-input", action="store_true", help="浮卡输入诊断")
     args = parser.parse_args(argv)
+    if args.self_check:
+        if args.check_permissions or args.diagnose_input or any(getattr(args, name) is not None for name in
+                ("port", "capture_mode", "cache_root", "game_cache", "translation_root")):
+            parser.error("--self-check 只可搭配 --check-network")
+        from package_check import run
+        return run(args.self_check, network=args.check_network)
+    if args.check_network:
+        parser.error("--check-network 需搭配 --self-check")
     if args.quit:
         if args.check_permissions or any(getattr(args, name) is not None for name in
                 ("port", "capture_mode", "cache_root", "game_cache", "translation_root")) or args.diagnose_input:

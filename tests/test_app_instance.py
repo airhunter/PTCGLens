@@ -59,6 +59,26 @@ class AppInstanceTest(unittest.TestCase):
                 process.communicate(timeout=5)
                 replacement.close()
 
+    def test_quit_during_first_permission_dialog_exits_and_releases_lock(self):
+        with TemporaryDirectory() as folder:
+            env = dict(os.environ, PTCGLENS_DATA_DIR=folder, QT_QPA_PLATFORM="offscreen")
+            process = subprocess.Popen([sys.executable, str(Path(__file__).with_name("startup_fixture.py"))],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", env=env)
+            try:
+                lines = []
+                for line in process.stdout:
+                    lines.append(line)
+                    if line.strip() == "ready":
+                        break
+                self.assertTrue(lines and lines[-1].strip() == "ready", process.stderr.read() if not lines else lines)
+                self.assertTrue(send_command(folder, "quit"))
+                self.assertEqual(process.wait(timeout=5), 0)
+                self.assertFalse((Path(folder)/"overlay.lock").exists())
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                process.communicate(timeout=5)
+
     def test_no_instance_is_a_bounded_failure_and_other_profiles_are_independent(self):
         with TemporaryDirectory() as folder:
             data = Path(folder)/"profile"

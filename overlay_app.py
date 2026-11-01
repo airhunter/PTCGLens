@@ -1419,6 +1419,14 @@ def main(argv=None):
             return 0
         QMessageBox.information(None, "PTCGLens", "程序正在启动或退出，请稍后重新打开。")
         return 1
+    exit_requested = False
+    def request_exit():
+        nonlocal exit_requested
+        exit_requested = True
+        # 权限提示可能运行在首次 app.exec() 之前，单独 app.quit() 不会关闭这个模态窗口。
+        app.closeAllWindows()
+        app.quit()
+    instance.quit_requested.connect(request_exit)
     overlay = None
     try:
         configure_file_logging(DATA_DIR / "logs/overlay.log")
@@ -1435,10 +1443,11 @@ def main(argv=None):
         if missing:
             QMessageBox.warning(None, "PTCGLens · 需要系统权限", "\n\n".join(missing)+
                                 "\n\n授权实际启动的 PTCGLens 应用（源码运行时为终端或宿主应用），然后重新启动。")
-            return 1
+            return 0 if exit_requested else 1
+        if exit_requested:
+            return 0
         overlay = Overlay(app, args)
         instance.show_requested.connect(overlay.show_status)
-        instance.quit_requested.connect(overlay.quit)
         return app.exec()
     finally:
         try:

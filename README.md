@@ -78,7 +78,7 @@ uv run python cache_watch.py --once
 uv run ptcglens.py
 ```
 
-无参数启动默认进入浮卡模式，旧命令 `uv run ptcglens.py --overlay` 仍然可用。已完成 `uv sync` 后，也可双击项目里的 `Start-PTCGLens.cmd`（Windows）或 `Start-PTCGLens.command`（Mac）。这些是源码环境启动器，仍依赖项目的 `.venv`；独立 exe/app 尚未构建。
+无参数启动默认进入浮卡模式，旧命令 `uv run ptcglens.py --overlay` 仍然可用。已完成 `uv sync` 后，也可双击项目里的 `Start-PTCGLens.cmd`（Windows）或 `Start-PTCGLens.command`（Mac）。这些是源码环境启动器，仍依赖项目的 `.venv`。Mac 已提供本机测试包构建方式，见[Mac 测试包说明](docs/macos-test-package.md)；Windows 独立包尚未构建。
 
 启动后程序驻留在 Windows 系统托盘或 Mac 菜单栏。默认**按一下 `Ctrl+Alt`（Mac 为 `Ctrl+Option`）开启查询，松手后将指针移到卡牌上悬停 0.6 秒；再按一下关闭**。开启时图标变色，菜单显示当前开关状态。允许轻微指针抖动，在已确认卡框内移动不反复查询；移到另一张牌，重新悬停后切换结果。设置提供 0.3–2 秒悬停时间、自定义快捷键，也保留“按住查询、松开关闭”及组合键加左键/右键点击模式。已有设置中的长按或点击偏好会保留，选择“按一下开启／关闭，悬停换牌”即可切换。
 

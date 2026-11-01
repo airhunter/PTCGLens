@@ -113,6 +113,30 @@ class MacCaptureTest(unittest.TestCase):
         config.setIgnoreShadowsSingleWindow_(True)
         self.assertEqual(config.width(), 200)
 
+    def test_concurrent_input_stop_uses_bounded_loop_without_lazy_native_lookup(self):
+        import threading
+        b = self.backend
+        hook = b.MouseTrigger(Mock(), Mock())
+        hook.run_loop = object()
+        errors = []
+        barrier = threading.Barrier(2)
+        def stop():
+            barrier.wait()
+            try:
+                hook.stop()
+            except Exception as error:
+                errors.append(error)
+        with patch.object(b.CG, "CFRunLoopStop", side_effect=AssertionError("unsafe lazy lookup")) as native_stop:
+            threads = [threading.Thread(target=stop) for _ in range(2)]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join(1)
+                self.assertFalse(thread.is_alive())
+            native_stop.assert_not_called()
+        self.assertEqual(errors, [])
+        self.assertTrue(hook.stop_event.is_set())
+
     def test_popup_can_join_other_apps_fullscreen_without_conflicting_roles(self):
         b = self.backend
         window = Mock()

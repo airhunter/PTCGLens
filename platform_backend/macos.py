@@ -488,5 +488,5 @@ class MouseTrigger(threading.Thread):
 
     def stop(self):
         self.stop_event.set()
-        if self.run_loop is not None:
-            CG.CFRunLoopStop(self.run_loop)
+        # RunInMode 最多等待 0.1 秒，会自行检查退出信号。公共悬停线程和界面
+        # 可能同时调用 stop，不能并发首次解析 PyObjC 的 CFRunLoopStop 懒加载函数。

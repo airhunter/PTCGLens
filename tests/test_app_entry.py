@@ -9,6 +9,14 @@ import ptcglens
 
 
 class AppEntryTest(unittest.TestCase):
+    def test_package_check_is_explicit_and_does_not_request_capture_permissions(self):
+        with patch("package_check.run", return_value=0) as check, \
+             patch("live_capture.check_permissions") as permissions, patch("overlay_app.main") as start:
+            self.assertEqual(ptcglens.main(["--self-check", "report.json", "--check-network"]), 0)
+        check.assert_called_once_with(Path("report.json"), network=True)
+        permissions.assert_not_called()
+        start.assert_not_called()
+
     def test_explicit_source_web_mode_keeps_services_and_stops_both(self):
         with TemporaryDirectory() as folder:
             data = Path(folder)
@@ -40,7 +48,8 @@ class AppEntryTest(unittest.TestCase):
         start.assert_called_once_with(["--cache-root", "custom cache", "--translation-root", "custom zh", "--diagnose-input"])
 
     def test_web_options_are_not_silently_ignored_and_frozen_web_does_not_spawn_itself(self):
-        for options in (["--port", "9000"], ["--capture-mode", "screen"], ["--quit", "--check-permissions"]):
+        for options in (["--port", "9000"], ["--capture-mode", "screen"], ["--quit", "--check-permissions"],
+                        ["--check-network"], ["--self-check", "report.json", "--check-permissions"]):
             with self.subTest(options=options), redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit) as error:
                     ptcglens.main(options)

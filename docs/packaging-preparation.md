@@ -35,9 +35,13 @@ Esc、关闭浮卡、查询快捷键仅取消当前查询。退出程序使用�
 
 本地控制采用 Qt 本地 socket／命名管道，不监听 TCP 端口，限制为当前用户访问。退出会先取消查询和迟到结果，隐藏浮卡与管理窗口，停止计时器、输入钩子和后台监测，通知识别与刷新线程停止，并有界等待；释放本地控制服务和单实例锁。退出清理可重复调用，不重复关闭资源。
 
+## Mac 本机测试包
+
+已增加 PyInstaller 构建脚本、菜单栏辅助应用元数据、图标、独立证书和第三方许可。Mac 测试包使用本机 ad-hoc 签名，尚未做 Developer ID 签名或 Apple 公证。安装与构建说明见 [Mac 测试包](macos-test-package.md)。Windows 独立包尚未构建。
+
 ## 后续发布包工作
 
-尚未生成独立安装包、签名或公证。构建应分别在 Windows 和 Mac 上进行，先使用 PyInstaller 的文件夹形式，Mac 输出 `.app`。除 Python 模块及原生库，还必须包含 `battle_layout.sample.json`、`card-image-rules.json` 和 `translations/local-zh.json`；如果将来扩展冻结包的网页模式，还需收集 `viewer/` 并改造服务入口。
+正式分发仍需签名、公证和干净机器验收。构建应分别在 Windows 和 Mac 上进行，先使用 PyInstaller 的文件夹形式，Mac 输出 `.app`。除 Python 模块及原生库，还必须包含 `battle_layout.sample.json`、`card-image-rules.json` 和 `translations/local-zh.json`；如果将来扩展冻结包的网页模式，还需收集 `viewer/` 并改造服务入口。
 
 构建还需检查 Qt 平台／图像插件、OpenCV、UnityPy 与所选平台的动态后端和原生绑定。Mac 固定 bundle ID 并设置菜单栏辅助应用属性，验证签名后屏幕录制、辅助功能和输入监控的授权归属；分别确认 Apple Silicon／Intel 目标架构。Windows 验证无控制台启动、托盘、中文用户路径、安装目录只读及原生采集组件。
 
