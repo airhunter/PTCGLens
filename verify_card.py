@@ -10,6 +10,8 @@ import cv2
 import numpy as np
 import UnityPy
 
+from image_files import write_image
+
 
 def extract_card(bundle: Path, card_id: str) -> np.ndarray:
     environment = UnityPy.load(str(bundle))
@@ -85,11 +87,11 @@ def main() -> int:
     result["card_id"] = args.card_id if result["matched"] else None
 
     args.output.mkdir(parents=True, exist_ok=True)
-    cv2.imwrite(str(args.output / f"{args.card_id}.png"), card)
+    write_image(args.output / f"{args.card_id}.png", card)
     if result["matched"]:
         annotated = screenshot.copy()
         cv2.polylines(annotated, [np.array(result["polygon"], np.int32)], True, (0, 255, 0), 4)
-        cv2.imwrite(str(args.output / "match.png"), annotated)
+        write_image(args.output / "match.png", annotated)
     (args.output / "result.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["matched"] else 1

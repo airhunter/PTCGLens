@@ -92,8 +92,8 @@ def main():
              'unconfirmed':sum(not r['passed'] and not r['wrong_answer'] for r in rows),
              'recognition_ms':dict(zip(['p50','p95'],np.percentile([r['elapsed_ms'] for r in rows],[50,95]).round(1).tolist()))}
     report={'summary':summary,'samples':samples,'cases_sha256':hashlib.sha256(args.cases.read_bytes()).hexdigest(),
-        'index_sha256':hashlib.sha256((ROOT/'output/index/manifest.json').read_bytes()).hexdigest(),
-        'card_data_sha256':hashlib.sha256((ROOT/'output/card-data.json').read_bytes()).hexdigest(),'rows':rows}
+        'index_sha256':hashlib.sha256((DATA_DIR/'index/manifest.json').read_bytes()).hexdigest(),
+        'card_data_sha256':hashlib.sha256((DATA_DIR/'card-data.json').read_bytes()).hexdigest(),'rows':rows}
     args.output.parent.mkdir(parents=True,exist_ok=True)
     args.output.write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
     print(json.dumps(summary,ensure_ascii=False),flush=True)

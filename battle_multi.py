@@ -16,6 +16,7 @@ from PIL import Image, ImageDraw, ImageFont
 from cache_search import cache_cards, candidate_result, load_index, read_image
 from global_cards import LargeCardFinder
 from verify_card import extract_card
+from image_files import write_image
 
 
 THUMB_SIZE = (160, 224)
@@ -46,8 +47,7 @@ def build_visual_index(index_dir: Path, cache_root: Path, visual_dir: Path) -> d
             height, width = card.shape[:2]
             crop = card[round(height * .03):round(height * .97), round(width * .16):round(width * .83)]
             thumbnail = cv2.resize(crop, THUMB_SIZE, interpolation=cv2.INTER_AREA)
-            if not cv2.imwrite(str(destination), thumbnail):
-                raise OSError(f"Cannot write {destination}")
+            write_image(destination, thumbnail)
             built.append(card_id)
         except Exception as exc:
             missing.append(f"{card_id}: {exc}")

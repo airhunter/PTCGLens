@@ -199,6 +199,7 @@ class GridCardFinder:
         direct = [b for b in rectangles if b[0]<=px<b[0]+b[2] and b[1]<=py<b[1]+b[3]]
         for x,y,w,h in sorted(direct,key=lambda b:b[2]*b[3])[:4]:
             check_query()
+            ranked = []
             if feature_finder is not None:
                 observed = image[y:min(image.shape[0],y+round(w*1.4)),x:x+w]
                 ranked = self.rank_candidates(observed,w)
@@ -224,6 +225,16 @@ class GridCardFinder:
                 result = self.verify_box(image,point,[x,restored_top,x+w,y+h])
                 if result:
                     return result
+            if ranked and ranked[0][0] >= .65:
+                # 特写外框含阴影时，模板复核可能失败。让局部特征检索确认
+                # 与可见外框吻合的卡，再考虑指针下方的牌桌卡位。
+                localized = feature_finder.find_in_box(image,self.cards,point,[x,y,x+w,y+h])
+                if localized and localized["status"] == "matched":
+                    lx,ly,lr,lb = localized["box"]
+                    if max(abs(lx-x),abs(lr-x-w)) <= w*.1 and max(abs(ly-y),abs(lb-y-h)) <= h*.1:
+                        result = self.check_energy_result(image, localized)
+                        if result:
+                            return result
         return None
 
     def find_partial(self, image, point):

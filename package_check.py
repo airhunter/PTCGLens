@@ -8,7 +8,7 @@ import ssl
 import sys
 
 from app_paths import DATA_DIR, RESOURCE_DIR
-from atomic_json import write_json_atomic
+from atomic_json import read_json_retry, write_json_atomic
 
 
 def run(report_path, *, network=False):
@@ -28,7 +28,7 @@ def run(report_path, *, network=False):
         assert layout["slots"] and load_local_chinese()
         build = RESOURCE_DIR/"build-info.json"
         return {"slots": len(layout["slots"]), "rules": len(rules),
-                "build": json.loads(build.read_text()) if build.exists() else "source"}
+                "build": read_json_retry(build) if build.exists() else "source"}
 
     def recognition():
         import cv2
@@ -68,7 +68,7 @@ def run(report_path, *, network=False):
         result = {"module": UnityPy.__file__, "texture_decode": "no cached sample"}
         manifest = DATA_DIR/"index/manifest.json"
         if manifest.is_file():
-            for record in json.loads(manifest.read_text())["cards"][:5]:
+            for record in read_json_retry(manifest)["cards"][:5]:
                 directory = DEFAULT_CARD_CACHE / (record["card_id"] + ("_t" if record["variant"] == "thumbnail" else ""))
                 bundle = next(directory.rglob("__data"), None)
                 if bundle is not None:

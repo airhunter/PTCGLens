@@ -7,6 +7,8 @@ from unittest.mock import Mock, patch
 import numpy as np
 import cv2
 
+from image_files import write_image
+
 from recognition_index import FeatureIndex, compact_records
 from battle_live import load_resources
 from cache_search import read_image
@@ -57,12 +59,14 @@ class RecognitionIndexTest(unittest.TestCase):
             manifest.write_text(json.dumps({"cards":records[:2]}))
             data=root/"cards.json"
             data.write_text(json.dumps({"cards":{r["card_id"]:{} for r in records}}))
+            visual_dir = root/'中文卡图'
+            visual_dir.mkdir()
             for i,record in enumerate(records):
-                cv2.imwrite(str(root/f'{record["card_id"]}.png'),texture(10+i))
-            first=load_resources(root,root,data)
+                write_image(root/'中文卡图'/f'{record["card_id"]}.png',texture(10+i))
+            first=load_resources(root,visual_dir,data)
             manifest.write_text(json.dumps({"cards":records}))
             with patch("battle_live.read_image",wraps=read_image) as read:
-                second=load_resources(root,root,data,previous=first)
+                second=load_resources(root,visual_dir,data,previous=first)
             self.assertEqual([call.args[0].stem for call in read.call_args_list],["three"])
             old_images,new_images=dict(first[0]),dict(second[0])
             self.assertIs(new_images["one"],old_images["one"])
@@ -72,7 +76,7 @@ class RecognitionIndexTest(unittest.TestCase):
             # 源资源更新，即使缩略图本身未变，也必须重新加载并计算。
             records[0]["bundle_mtime_ns"]=123
             manifest.write_text(json.dumps({"cards":records}))
-            third=load_resources(root,root,data,previous=second)
+            third=load_resources(root,visual_dir,data,previous=second)
             changed={r["card_id"]:r for r in third[3].records}
             self.assertIsNot(changed["one"],new_features["one"])
             self.assertIs(changed["two"],new_features["two"])

@@ -16,6 +16,7 @@ import cv2
 import numpy as np
 
 from verify_card import extract_card
+from image_files import write_image
 
 
 CARD_DIRECTORY = re.compile(r"^[a-z0-9-]+_en_\d{3}(?:_t)?$")
@@ -259,7 +260,7 @@ def search_index(index_dir: Path, screenshot_path: Path, result_path: Path, verb
     preview = screenshot.copy()
     if winner:
         cv2.polylines(preview, [np.array(winner["polygon"], np.int32)], True, (0, 255, 0), 4)
-    cv2.imwrite(str(result_path.with_suffix(".png")), preview)
+    write_image(result_path.with_suffix(".png"), preview)
     if verbose:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     return result

@@ -60,7 +60,7 @@ class FailedCacheRetryTest(unittest.TestCase):
                 result = update_index(root/'cache', index)
             self.assertEqual(extract.call_count, 2)
             self.assertEqual(result['updated'], 0)
-            self.assertEqual(json.loads((index/'manifest.json').read_text())['cards'], [good])
+            self.assertEqual(json.loads((index/'manifest.json').read_text(encoding='utf-8'))['cards'], [good])
             self.assertEqual((index/'test_en_001.npz').read_bytes(), b'last good features')
 
 

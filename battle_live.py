@@ -8,6 +8,8 @@ import time
 from pathlib import Path
 from app_paths import DATA_DIR, RESOURCE_DIR, DEFAULT_TRANSLATION_ROOT
 
+from image_files import write_image
+
 import cv2
 import numpy as np
 
@@ -110,7 +112,7 @@ def save_frame(output_dir: Path, screenshot: np.ndarray, results: list[dict], me
     output_dir.mkdir(parents=True, exist_ok=True)
     screenshot_temp = output_dir / "screenshot.tmp.png"
     screenshot_path = output_dir / "screenshot.png"
-    cv2.imwrite(str(screenshot_temp), screenshot)
+    write_image(screenshot_temp, screenshot)
     replace_when_available(screenshot_temp, screenshot_path)
     annotated_temp = output_dir / "annotated.tmp.png"
     annotate(screenshot, results, annotated_temp)

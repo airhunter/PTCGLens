@@ -12,6 +12,23 @@ from recognition_index import compact_records
 
 
 class GridRecognitionTest(unittest.TestCase):
+    def test_local_match_requires_confirmation_and_alignment_with_visible_contour(self):
+        image = np.zeros((500,600,3),np.uint8)
+        finder = GridCardFinder([], {})
+        feature_finder = LargeCardFinder.__new__(LargeCardFinder)
+        for status,box,accepted in (("matched",[205,105,395,375],True),
+                                    ("tentative",[205,105,395,375],False),
+                                    ("matched",[280,130,350,228],False)):
+            with self.subTest(status=status,box=box), \
+                 patch("grid_cards.card_rectangles",return_value=[(200,100,200,280)]), \
+                 patch.object(finder,"rank_candidates",return_value=[(.9,"preview")]), \
+                 patch.object(finder,"verify_box",return_value=None), \
+                 patch.object(finder,"verify_projected",return_value=None), \
+                 patch.object(feature_finder,"find_in_box",return_value={
+                     "status":status,"card_id":"preview","box":box,"polygon":[]}):
+                result = finder.find_at(image,(310,160),feature_finder)
+                self.assertEqual(result is not None,accepted)
+
     def test_outer_shadow_proposal_recovers_actual_card_before_broad_search(self):
         canvas, refs = self.scene()
         cards = {"first":{"name_en":"First"},"second":{"name_en":"Second"}}
