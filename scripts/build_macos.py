@@ -1,6 +1,5 @@
 """从锁定环境构建 Mac 测试包；中间文件在 build/ 和私有临时目录，归档在 dist/。"""
 
-from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -10,17 +9,18 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import tomllib
-from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from repository_revision import repository_revision
+from release_version import project_version
+from scripts.build_common import build_info
 
 
 def main():
     if sys.platform != "darwin":
         raise SystemExit("Mac 应用必须在 macOS 上构建。")
+    if platform.machine() != "arm64":
+        raise SystemExit("首个 Mac 测试版仅构建 Apple Silicon arm64。")
     from PIL import Image, ImageDraw
     import importlib.metadata
 
@@ -49,17 +49,8 @@ def main():
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(source, destination)
 
-    version = tomllib.loads((ROOT/"pyproject.toml").read_text())["project"]["version"]
-    digest = hashlib.sha256()
-    sources = (list(ROOT.glob("*.py")) + list((ROOT/"platform_backend").rglob("*.py"))
-               + [ROOT/"battle_layout.sample.json", ROOT/"card-image-rules.json",
-                  ROOT/"translations/local-zh.json", ROOT/"packaging/runtime_macos.py"])
-    for source in sorted(sources):
-        digest.update(str(source.relative_to(ROOT)).encode()+b"\0"+source.read_bytes())
-    info = {"version": version, "base_revision": repository_revision(ROOT), "source_sha256": digest.hexdigest(),
-            "built_at_utc": datetime.now(timezone.utc).isoformat(),
-            "architecture": platform.machine(), "python": platform.python_version(),
-            "pyinstaller": importlib.metadata.version("pyinstaller"), "channel": "local-test"}
+    version = project_version(ROOT)
+    info = build_info(version, platform.machine(), "macOS")
     (generated/"build-info.json").write_text(json.dumps(info, ensure_ascii=False, indent=2), encoding="utf-8")
     build_environment = dict(os.environ)
     build_environment["PYINSTALLER_CONFIG_DIR"] = str(ROOT/"build/pyinstaller-cache")
@@ -82,13 +73,18 @@ def finish_bundle(version, app):
         subprocess.run(["/usr/bin/xattr", "-dr", name, str(app)], check=True)
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-", "--timestamp=none", str(app)], check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
-    stamp = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y%m%d")
     (ROOT/"dist").mkdir(exist_ok=True)
-    archive = ROOT / f"dist/PTCGLens-{version}-macOS-{platform.machine()}-test-{stamp}.zip"
+    archive = ROOT / f"dist/PTCGLens-{version.public}-macos-arm64.zip"
+    if archive.exists():
+        raise FileExistsError(f"已有同版归档，不覆盖：{archive}")
     subprocess.run(["ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", str(app), str(archive)], check=True)
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     archive.with_suffix(".zip.sha256").write_text(f"{digest}  {archive.name}\n", encoding="utf-8")
-    print(f"测试压缩包：{archive}\nSHA-256：{digest}", flush=True)
+    result = {"archive": str(archive), "sha256": digest, "archive_bytes": archive.stat().st_size}
+    info = json.loads((ROOT/"build/macos-assets/build-info.json").read_text(encoding="utf-8"))
+    result.update({key: info[key] for key in ("version", "tag", "base_revision", "source_sha256")})
+    (ROOT/"dist/macos-latest-build.json").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
 
 
 if __name__ == "__main__":

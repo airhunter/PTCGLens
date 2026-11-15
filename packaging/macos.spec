@@ -7,7 +7,8 @@ from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, co
 
 root = Path(SPECPATH).parent
 generated = root / "build/macos-assets"
-version = json.loads((generated / "build-info.json").read_text())["version"]
+info = json.loads((generated / "build-info.json").read_text(encoding="utf-8"))
+version = info["base_version"]
 native = ("objc", "Foundation", "AppKit", "CoreFoundation", "Quartz",
           "ApplicationServices", "ScreenCaptureKit")
 hidden = ["platform_backend.macos", "certifi"]
@@ -43,7 +44,10 @@ app = BUNDLE(coll, name="PTCGLens.app", icon=str(generated / "PTCGLens.icns"),
              bundle_identifier="io.github.airhunter.ptcglens", version=version,
              info_plist={
                  "CFBundleDisplayName": "PTCGLens",
-                 "CFBundleVersion": version,
+                 "CFBundleVersion": str(info["build_number"]),
+                 "CFBundleShortVersionString": version,
+                 "PTCGLensReleaseVersion": info["version"],
+                 "CFBundleGetInfoString": f"PTCGLens {info['version']}",
                  "LSUIElement": True,
                  "LSMinimumSystemVersion": "14.0",
                  "NSPrincipalClass": "NSApplication",

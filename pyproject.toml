@@ -1,6 +1,6 @@
 [project]
 name = "ptcglens"
-version = "0.1.0"
+version = "0.1.0a1"
 description = "Pokémon TCG Live 本地卡牌识别与中文阅读界面"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -39,7 +39,15 @@ def run(report_path, *, network=False):
         assert keypoints and descriptors is not None
         encoded = cv2.imencode(".png",pixels)[1]
         assert np.array_equal(cv2.imdecode(encoded,cv2.IMREAD_COLOR), pixels)
-        return {"opencv": cv2.__version__, "features": len(keypoints), "module": cv2.__file__}
+        from tempfile import TemporaryDirectory
+        from image_files import write_image
+        from cache_search import read_image
+        with TemporaryDirectory(prefix="PTCGLens-中文自检-") as folder:
+            path = Path(folder) / "卡图测试.png"
+            write_image(path, pixels)
+            assert np.array_equal(read_image(path), pixels)
+        return {"opencv": cv2.__version__, "features": len(keypoints), "module": cv2.__file__,
+                "unicode_image_path": True}
 
     def qt():
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -59,7 +67,14 @@ def run(report_path, *, network=False):
         from platform_backend import get_backend
         backend = get_backend()
         assert callable(backend.WindowCaptureSession) and callable(backend.MouseTrigger)
-        return {"module": backend.__file__}
+        detail = {"module": backend.__file__}
+        if sys.platform == "win32":
+            # 实际导入原生扩展，但不创建采集会话，避免漏装 pyd 却自检通过。
+            import windows_capture
+            import windows_capture.windows_capture as capture_extension
+            assert callable(windows_capture.WindowsCapture)
+            detail.update(capture_module=capture_extension.__file__)
+        return detail
 
     def unity():
         import UnityPy

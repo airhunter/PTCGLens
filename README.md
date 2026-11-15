@@ -20,7 +20,7 @@ PTCGLens 是一个实验性的 Pokémon TCG Live 卡牌识别工具。它从**�
 ## 运行环境
 
 - Windows 10 1903 或更新版本，或 macOS 14 及更新版本。Windows 使用 Windows Graphics Capture；Mac 使用 ScreenCaptureKit，需要系统采集和输入权限。实现与验证边界见[跨平台说明](docs/cross-platform.md)。
-- [uv](https://docs.astral.sh/uv/getting-started/installation/)；项目依赖由 [pyproject.toml](pyproject.toml) 和 `uv.lock` 管理，Python 3.12、3.13 已验证。
+- 源码运行需要 [uv](https://docs.astral.sh/uv/getting-started/installation/)；项目依赖由 [pyproject.toml](pyproject.toml) 和 `uv.lock` 管理，Python 3.12、3.13 已验证。Windows 便携测试包无需安装 Python 或 uv，见[测试包说明](docs/windows-test-package.md)。
 - 本机安装过 Pokémon TCG Live，且游戏缓存里已有卡图和英文卡牌数据库。
 - Git，用于获取可选的中文对照表。
 - 浏览器，用于打开本机展示界面。
@@ -28,6 +28,8 @@ PTCGLens 是一个实验性的 Pokémon TCG Live 卡牌识别工具。它从**�
 游戏目前无法联网时，可以先准备代码和 Python 环境；**首次建立索引仍需要本机已有的游戏缓存**。仓库不附带游戏卡图、游戏数据库或完整上游中文对照表；包含本项目维护的[本地参考译文补充](translations/README.md)。
 
 ## 快速开始
+
+首个双平台测试版约定为 **v0.1.0-alpha.1**，Windows x64 与 macOS arm64 采用同一提交构建；版号映射及草稿发布流程见[版本约定](docs/versioning.md)，功能与验证边界见[本版说明](docs/releases/v0.1.0-alpha.1.md)。
 
 以下命令在项目根目录执行；Windows 使用 PowerShell，Mac 使用终端。
 
@@ -78,7 +80,7 @@ uv run python cache_watch.py --once
 uv run ptcglens.py
 ```
 
-无参数启动默认进入浮卡模式，旧命令 `uv run ptcglens.py --overlay` 仍然可用。已完成 `uv sync` 后，也可双击项目里的 `Start-PTCGLens.cmd`（Windows）或 `Start-PTCGLens.command`（Mac）。这些是源码环境启动器，仍依赖项目的 `.venv`。Mac 已提供本机测试包构建方式，见[Mac 测试包说明](docs/macos-test-package.md)；Windows 独立包尚未构建。
+无参数启动默认进入浮卡模式，旧命令 `uv run ptcglens.py --overlay` 仍然可用。已完成 `uv sync` 后，也可双击项目里的 `Start-PTCGLens.cmd`（Windows）或 `Start-PTCGLens.command`（Mac）。这些是源码环境启动器，仍依赖项目的 `.venv`。Windows 便携测试包解压后直接双击 `PTCGLens.exe`，见[Windows 测试包说明](docs/windows-test-package.md)；Mac 本机测试包见[Mac 测试包说明](docs/macos-test-package.md)。
 
 启动后程序驻留在 Windows 系统托盘或 Mac 菜单栏。默认**按一下 `Ctrl+Alt`（Mac 为 `Ctrl+Option`）开启查询，松手后将指针移到卡牌上悬停 0.6 秒；再按一下关闭**。开启时图标变色，菜单显示当前开关状态。允许轻微指针抖动，在已确认卡框内移动不反复查询；移到另一张牌，重新悬停后切换结果。设置提供 0.3–2 秒悬停时间、自定义快捷键，也保留“按住查询、松开关闭”及组合键加左键/右键点击模式。已有设置中的长按或点击偏好会保留，选择“按一下开启／关闭，悬停换牌”即可切换。
 

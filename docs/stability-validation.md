@@ -1,5 +1,9 @@
 # 查询稳定性验证
 
+## 2026-11-15 Windows 便携测试包
+
+已构建 Windows x64 的 0.1.0 文件夹便携包。235 项源码测试运行通过（16 项跳过），网页双语测试通过；解压后的无控制台 EXE 通过中文路径、无 Python PATH 的六项自检、真实游戏纹理解码、正常 qwindows 启动、重复启动复用实例、退出释放锁，以及移动目录后的设置和隔离译文缓存保留。程序目录的文件及哈希未发生变化。详细产物、报告、DLL 来源修复和验证边界见 [Windows 测试包](windows-test-package.md)。本轮没有启用 Codex 桌面监控，冻结包的游戏内实测及干净机器验证尚未完成。
+
 ## 2026-11-01 Mac 独立测试包
 
 已生成 Apple Silicon arm64 的 0.1.0 本机测试包，嵌入 Python 3.12.9、PyInstaller 6.22.3，采用 ad-hoc 签名，未做 Developer ID 签名或 Apple 公证。应用安装在本机用户 `~/Applications/PTCGLens.app`，归档为 `dist/PTCGLens-0.1.0-macOS-arm64-test-20261101.zip`，约 97 MiB，SHA-256 为 `71325af1e11145456779ba0111a55567d267565e4bd31e4824c425f673ab01a5`。只提交脚本和说明，不提交 app、归档、私有配置或游戏素材。

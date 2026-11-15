@@ -1,0 +1,79 @@
+name: Build test packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['codex/release-*']
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows
+            architecture: x64
+          - os: macos-15
+            platform: macos
+            architecture: arm64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    env:
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: utf-8
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          python-version: '3.13.11'
+      - run: uv sync --locked --group build
+      - name: Source regression tests
+        run: uv run --locked --group build python -m unittest discover -s tests
+      - run: node tests/test_viewer_bilingual.js
+      - name: Build Windows x64
+        if: matrix.platform == 'windows'
+        run: uv run --locked --group build python scripts/build_windows.py
+      - name: Verify Windows executable without desktop automation
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $build = Get-Content dist/windows-latest-build.json -Raw | ConvertFrom-Json
+          uv run --locked --group build python scripts/verify_windows_package.py $build.archive
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build macOS arm64
+        if: matrix.platform == 'macos'
+        run: uv run --locked --group build python scripts/build_macos.py
+      - name: Verify Mac bundle without requesting screen or input permissions
+        if: matrix.platform == 'macos'
+        run: uv run --locked --group build python scripts/verify_macos_package.py
+      - name: Upload verified package
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package-${{ matrix.platform }}-${{ matrix.architecture }}
+          path: |
+            dist/*.zip
+            dist/*.zip.sha256
+            dist/*-latest-build.json
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: validation-${{ matrix.platform }}-${{ matrix.architecture }}
+          path: |
+            output/**/verification.json
+            output/**/frozen-self-check.json
+            output/**/logs/overlay.log
+            build/${{ matrix.platform }}-assets/build-info.json
+            build/pyinstaller-${{ matrix.platform }}/**/warn-*.txt
+          if-no-files-found: warn
+          retention-days: 14

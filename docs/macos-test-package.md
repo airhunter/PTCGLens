@@ -1,10 +1,10 @@
 # Mac 本机测试包
 
-当前测试版为 0.1.0，适用于 Apple Silicon（M 系列）Mac、macOS 14 及以上。自带 Python、Qt、识别与平台依赖，不需要安装 Python 或 uv。暂未构建 Intel 版和 Windows 版。
+当前发布准备版为 **v0.1.0-alpha.1**，适用于 Apple Silicon（M 系列）Mac、macOS 14 及以上。自带 Python、Qt、识别与平台依赖，不需要安装 Python 或 uv；没有 Intel 包。Windows x64 与 Mac arm64 从同一提交构建，规则见[版本约定](versioning.md)。下方 2026-11-01 的 `0.1.0` 归档是历史本机测试包，不能改名作为本次发布包。
 
 ## 安装与使用
 
-1. 解压 `dist/PTCGLens-0.1.0-macOS-arm64-test-20261101.zip`，将 `PTCGLens.app` 放到用户的“应用程序”目录中。先退出旧源码版浮卡，再双击启动此应用。
+1. 解压 `PTCGLens-0.1.0-alpha.1-macos-arm64.zip`，将 `PTCGLens.app` 放到用户的“应用程序”目录中。先退出旧源码版浮卡，再双击启动此应用。
 2. 首次运行按提示在“系统设置 → 隐私与安全性”中，为 **PTCGLens 本身**开启屏幕录制（新系统可能叫“屏幕与系统音频录制”）、辅助功能和输入监控，然后退出并重新打开应用。原先对终端或 Codex 的授权不代表新 app 已获授权。
 3. 进入游戏，按一下 **Control+Option** 开启查询，悬停卡牌；再次按下关闭。缺失的中文仍自动翻译，英文保留。
 4. 整个程序的退出入口在顶部菜单栏图标和“运行状态与准备”窗口中，名称都是“退出 PTCGLens”。关闭浮卡或 Esc 只关闭查询。

@@ -1431,6 +1431,8 @@ def main(argv=None):
     try:
         configure_file_logging(DATA_DIR / "logs/overlay.log")
         log(f"启动 PTCGLens；程序数据目录：{DATA_DIR}")
+        log(f"运行环境：{'独立包' if getattr(sys, 'frozen', False) else '源码'}；"
+            f"Qt 平台：{app.platformName()}；程序资源目录：{RESOURCE_DIR}")
         try:
             migrate_preferences(DATA_DIR, RESOURCE_DIR)
         except OSError as exc:
