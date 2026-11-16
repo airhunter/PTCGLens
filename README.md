@@ -4,6 +4,19 @@ PTCGLens 是一个实验性的 Pokémon TCG Live 卡牌识别工具。它从**�
 
 程序只读游戏缓存和屏幕画面，不修改游戏文件，也不连接或注入游戏进程。本项目不是 Pokémon TCG Live 的官方工具。
 
+## 下载测试版
+
+当前测试版为 **v0.1.0-alpha.1（Alpha 预发布）**，欢迎下载并反馈问题。
+
+| 平台 | 下载 |
+| --- | --- |
+| Windows x64（目标 Windows 10 1903+） | [下载 Windows 便携包](https://github.com/airhunter/PTCGLens/releases/download/v0.1.0-alpha.1/PTCGLens-0.1.0-alpha.1-windows-x64.zip) |
+| Apple Silicon Mac（目标 macOS 14+，不支持 Intel） | [下载 Mac 程序包](https://github.com/airhunter/PTCGLens/releases/download/v0.1.0-alpha.1/PTCGLens-0.1.0-alpha.1-macos-arm64.zip) |
+
+解压后运行 Windows 的 `PTCGLens.exe` 或 Mac 的 `PTCGLens.app`，**无需安装 Python 或 uv**。Windows 请保留完整解压目录，包括 `_internal` 文件夹。首次准备仍需要本机 Pokémon TCG Live 已有的卡图和英文资料缓存。
+
+首次运行说明和验证范围见[发布页面](https://github.com/airhunter/PTCGLens/releases/tag/v0.1.0-alpha.1)；文件校验值见 [SHA256SUMS.txt](https://github.com/airhunter/PTCGLens/releases/download/v0.1.0-alpha.1/SHA256SUMS.txt)。
+
 ## 目前能做什么
 
 - 识别对局画面中预设位置的场上卡、手牌和弃牌堆顶卡，并跟随画面检测手牌位置。
@@ -20,7 +33,7 @@ PTCGLens 是一个实验性的 Pokémon TCG Live 卡牌识别工具。它从**�
 ## 运行环境
 
 - Windows 10 1903 或更新版本，或 macOS 14 及更新版本。Windows 使用 Windows Graphics Capture；Mac 使用 ScreenCaptureKit，需要系统采集和输入权限。实现与验证边界见[跨平台说明](docs/cross-platform.md)。
-- [uv](https://docs.astral.sh/uv/getting-started/installation/)；项目依赖由 [pyproject.toml](pyproject.toml) 和 `uv.lock` 管理，Python 3.12、3.13 已验证。
+- 源码运行需要 [uv](https://docs.astral.sh/uv/getting-started/installation/)；项目依赖由 [pyproject.toml](pyproject.toml) 和 `uv.lock` 管理，Python 3.12、3.13 已验证。上方程序包已包含运行环境。
 - 本机安装过 Pokémon TCG Live，且游戏缓存里已有卡图和英文卡牌数据库。
 - Git，用于获取可选的中文对照表。
 - 浏览器，用于打开本机展示界面。
@@ -29,7 +42,7 @@ PTCGLens 是一个实验性的 Pokémon TCG Live 卡牌识别工具。它从**�
 
 ## 快速开始
 
-以下命令在项目根目录执行；Windows 使用 PowerShell，Mac 使用终端。
+以下为源码运行步骤，命令在项目根目录执行；Windows 使用 PowerShell，Mac 使用终端。下载程序包的用户可直接按上方说明启动。
 
 ### 1. 准备 Python 环境
 
